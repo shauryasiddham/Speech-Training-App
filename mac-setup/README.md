@@ -36,6 +36,7 @@ The phone sends what he says to a model running on your Mac over the home Wi-Fi.
 ## Good to know
 
 - **The Mac needs to be on and awake.** If it's asleep, closed or away, the app shows "The Mac is away". It then uses Claude if a key is set and "Use Claude when the Mac is off" is on. Otherwise only the built-in exercises work until the Mac is back. To stop the Mac sleeping while he practises, keep it plugged in, or run `caffeinate -d` in Terminal (press Ctrl+C to stop).
+- **After a restart,** log in to the Mac. About 10 seconds later the login item restarts Ollama with the right settings. Nothing runs while the Mac is on the login screen.
 - **If the Mac's address changes** (for example after the router restarts), the app looks for the Mac on the Wi-Fi again by itself. You can also tap **Find my Mac**.
 - **Privacy:** his sentences go only to your Mac, never to the internet (unless the Claude fallback is used). Anyone on your home Wi-Fi could also use Ollama on this Mac, so only do this on a private home network.
 - **To undo everything:**

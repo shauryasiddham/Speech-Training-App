@@ -21,7 +21,8 @@ OLLAMA_BIN="$(command -v ollama || echo /Applications/Ollama.app/Contents/Resour
 #    - listen on the local network (port 11434)
 #    - free the model's memory after 10 idle minutes
 #    - only one model loaded, one request at a time
-#    A small login item re-applies these settings after every restart.
+#    A small login item re-applies these settings after every restart, then (re)starts
+#    Ollama so it never runs without them (it can otherwise start before they're set).
 mkdir -p "$HOME/Library/LaunchAgents"
 cat > "$AGENT" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -32,7 +33,7 @@ cat > "$AGENT" <<PLIST
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string><string>-c</string>
-    <string>launchctl setenv OLLAMA_HOST 0.0.0.0:11434; launchctl setenv OLLAMA_KEEP_ALIVE 10m; launchctl setenv OLLAMA_MAX_LOADED_MODELS 1; launchctl setenv OLLAMA_NUM_PARALLEL 1</string>
+    <string>launchctl setenv OLLAMA_HOST 0.0.0.0:11434; launchctl setenv OLLAMA_KEEP_ALIVE 10m; launchctl setenv OLLAMA_MAX_LOADED_MODELS 1; launchctl setenv OLLAMA_NUM_PARALLEL 1; sleep 5; osascript -e 'quit app "Ollama"'; sleep 3; open -a Ollama</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict>
