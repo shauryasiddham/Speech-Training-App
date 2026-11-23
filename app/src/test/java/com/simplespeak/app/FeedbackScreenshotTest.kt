@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import androidx.activity.ComponentActivity
 import androidx.test.core.app.ApplicationProvider
+import com.simplespeak.app.data.BetterWord
 import com.simplespeak.app.data.Feedback
 import com.simplespeak.app.ui.AppViewModel
 import com.simplespeak.app.ui.FeedbackCard
@@ -56,6 +57,9 @@ class FeedbackScreenshotTest {
             improved = "Yesterday I went to the park.",
             tip = "\"Yesterday\" means the past, so \"go\" changes to \"went\".",
             mistakes = listOf("verb_tense"),
+            betterWords = listOf(BetterWord("very good", "amazing")),
+            organization = "Start with when it happened, then say what you did.",
+            nextLevel = "Last weekend I went to the park with my brother, and we played football until it got dark.",
         ),
     )
 

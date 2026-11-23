@@ -1,10 +1,13 @@
 package com.simplespeak.app.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,14 +20,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
@@ -34,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -43,36 +48,47 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.simplespeak.app.ai.CoachException
+import com.simplespeak.app.ai.LocalModel
 import com.simplespeak.app.data.AgeGroup
 import com.simplespeak.app.data.ExerciseType
-import com.simplespeak.app.data.RewardStyle
+import com.simplespeak.app.data.Stats
 import com.simplespeak.app.ui.AppViewModel
-import com.simplespeak.app.ui.BigButton
+import com.simplespeak.app.ui.CoachOrb
+import com.simplespeak.app.ui.GoalRing
+import com.simplespeak.app.ui.GradientButton
+import com.simplespeak.app.ui.HeroCard
 import com.simplespeak.app.ui.ListenButton
 import com.simplespeak.app.ui.LocalExtraColors
+import com.simplespeak.app.ui.OrbState
 import com.simplespeak.app.ui.Screen
+import com.simplespeak.app.ui.SectionLabel
 import com.simplespeak.app.ui.SoftCard
 import com.simplespeak.app.ui.SpeakInput
-import com.simplespeak.app.ui.StepDots
+import com.simplespeak.app.ui.StepBar
+import com.simplespeak.app.ui.StreakFlame
 import com.simplespeak.app.ui.Thinking
+import com.simplespeak.app.ui.WeekStrip
+import com.simplespeak.app.ui.streakMilestones
 import kotlinx.coroutines.launch
+import java.time.LocalTime
 
-/** Standard scrolling page with padding. */
+/** Standard scrolling page with a soft wash at the top. */
 @Composable
 fun Page(content: @Composable () -> Unit) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp),
-    ) { content() }
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxWidth().height(260.dp).background(LocalExtraColors.current.wash))
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) { content() }
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -81,31 +97,27 @@ fun Page(content: @Composable () -> Unit) {
 fun SetupScreen(vm: AppViewModel) {
     var name by remember { mutableStateOf(vm.prefs.learnerName) }
     var age by remember { mutableStateOf(vm.prefs.ageGroup) }
+    var interests by remember { mutableStateOf(vm.prefs.interests) }
     Page {
-        Spacer(Modifier.height(24.dp))
-        Text("Welcome to SimpleSpeak", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { CoachOrb(OrbState.Idle, size = 120.dp) }
+        Text("Welcome to SimpleSpeak", style = MaterialTheme.typography.headlineLarge, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         Text(
-            "SimpleSpeak helps you practise putting your ideas into clear sentences. A caregiver can help with this first step.",
-            style = MaterialTheme.typography.bodyLarge,
+            "Practise turning your ideas into clear spoken sentences, with a speaking coach that runs on this phone.",
+            style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
-            value = name, onValueChange = { name = it },
-            label = { Text("Learner's first name") },
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Text("Age group", style = MaterialTheme.typography.titleMedium)
+        OutlinedTextField(name, { name = it }, label = { Text("First name") }, singleLine = true, textStyle = MaterialTheme.typography.bodyLarge,
+            shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
+        SectionLabel("Age group")
         AgePicker(age) { age = it }
+        OutlinedTextField(interests, { interests = it }, label = { Text("Things he likes (optional)") }, placeholder = { Text("e.g. trains, football, cooking") },
+            textStyle = MaterialTheme.typography.bodyLarge, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth())
         Text(
-            "Smart feedback uses Claude. A caregiver can add a Claude API key later in the Caregiver tab. Word-tile practice works without it.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            "Next, a caregiver can download the speaking coach (2.6 GB, best on Wi-Fi) from the Caregiver tab.",
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        BigButton("Start", onClick = {
-            vm.prefs.learnerName = name
-            vm.prefs.ageGroup = age
-            vm.prefs.setupDone = true
+        GradientButton("Get started", onClick = {
+            vm.prefs.learnerName = name; vm.prefs.ageGroup = age; vm.prefs.interests = interests; vm.prefs.setupDone = true
             vm.navigate(Screen.Home)
         }, modifier = Modifier.fillMaxWidth())
     }
@@ -115,87 +127,120 @@ fun SetupScreen(vm: AppViewModel) {
 fun AgePicker(selected: AgeGroup, onSelect: (AgeGroup) -> Unit) {
     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
         AgeGroup.entries.forEachIndexed { i, a ->
-            SegmentedButton(
-                selected = a == selected,
-                onClick = { onSelect(a) },
-                shape = SegmentedButtonDefaults.itemShape(i, AgeGroup.entries.size),
-            ) { Text(a.label) }
+            SegmentedButton(selected = a == selected, onClick = { onSelect(a) }, shape = SegmentedButtonDefaults.itemShape(i, AgeGroup.entries.size)) { Text(a.label) }
         }
     }
 }
 
 // ---------------------------------------------------------------------------------------------
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(vm: AppViewModel) {
+    val version = vm.dataVersion
+    val attempts = remember(version) { vm.store.attempts() }
+    val today = Stats.answersToday(attempts)
+    val goal = vm.prefs.dailyGoal
+    val streak = vm.prefs.streak
+    val practiced = remember(version) { vm.prefs.practicedDays }
     val name = vm.prefs.learnerName
-    val types = vm.availableTypes()
-    val plan = List(vm.prefs.sessionLength) { types[it % types.size] }
+    val extra = LocalExtraColors.current
+    val greeting = when (LocalTime.now().hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
+    val plan = remember(version) { vm.sessionPlan() }
+
     Page {
-        Text(if (name.isBlank()) "Hello" else "Hello, $name", style = MaterialTheme.typography.headlineMedium)
-        if (vm.prefs.rewardStyle == RewardStyle.STARS) {
-            val streak = vm.prefs.streak
-            Text(
-                "⭐ ${vm.prefs.totalStars} stars" + if (streak > 0) "   ·   $streak day${if (streak == 1) "" else "s"} in a row" else "",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text("$greeting${if (name.isNotBlank()) ", $name" else ""}", style = MaterialTheme.typography.headlineMedium)
 
-        SoftCard(color = MaterialTheme.colorScheme.primaryContainer) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Today's practice", style = MaterialTheme.typography.titleLarge)
-                Text("${plan.size} short exercises, in this order:", style = MaterialTheme.typography.bodyLarge)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    plan.forEachIndexed { i, t ->
-                        Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
-                            Text("${i + 1}. ${t.emoji}", Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.bodyMedium)
-                        }
-                    }
+        HeroCard {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    StreakFlame(streak, Modifier.weight(1f), color = androidx.compose.ui.graphics.Color.White, textColor = extra.heroText)
+                    GoalRing(today, goal, onHero = true)
                 }
-                BigButton("Start practice", icon = Icons.Rounded.PlayArrow, onClick = vm::startSession, modifier = Modifier.fillMaxWidth())
-            }
-        }
-
-        Text("Practise one thing", style = MaterialTheme.typography.titleLarge)
-        ExerciseType.entries.forEach { t ->
-            val locked = t.needsAi && !vm.coach.isConfigured
-            Surface(
-                onClick = { vm.navigate(Screen.Practice(t)) },
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(t.emoji, fontSize = 34.sp)
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(t.title, style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            if (locked) "Needs Claude (Caregiver tab)" else "Level ${vm.prefs.level(t)} of 3",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                WeekStrip(practiced, onHero = true)
+                Text(
+                    when {
+                        today >= goal -> "Daily goal done. Brilliant work today."
+                        streak > 0 && today == 0 -> "Practise today to keep your $streak-day streak going."
+                        else -> "${goal - today} more answers to reach today's goal."
+                    },
+                    style = MaterialTheme.typography.bodyMedium, color = extra.heroText.copy(alpha = 0.9f),
+                )
+                Surface(onClick = vm::startSession, shape = RoundedCornerShape(30.dp), color = androidx.compose.ui.graphics.Color.White, modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(vertical = 16.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.PlayArrow, null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Start practice · ${plan.size} steps", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
         }
 
-        Surface(
-            onClick = { vm.navigate(Screen.Helper) },
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.ChatBubbleOutline, null, Modifier.size(34.dp))
-                Spacer(Modifier.width(16.dp))
+        if (!vm.aiReady) CoachSetupBanner(vm)
+
+        SoftCard(onClick = { vm.navigate(Screen.Talk) }) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CoachOrb(OrbState.Idle, size = 64.dp, reduceMotion = true)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Talk with your coach", style = MaterialTheme.typography.titleMedium)
+                    Text("A real conversation, with tips as you go.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Icon(Icons.AutoMirrored.Rounded.ArrowForward, null, tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        SectionLabel("Practise one skill")
+        ExerciseType.practice.chunked(2).forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEach { t -> SkillTile(vm, t, Modifier.weight(1f)) }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+
+        SoftCard(onClick = { vm.navigate(Screen.Helper) }, color = MaterialTheme.colorScheme.secondaryContainer) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.ChatBubbleOutline, null, Modifier.size(30.dp), tint = MaterialTheme.colorScheme.secondary)
+                Spacer(Modifier.width(14.dp))
                 Column {
                     Text("Help me say it", style = MaterialTheme.typography.titleMedium)
-                    Text("Say your idea in any way. Get a clear sentence back.", style = MaterialTheme.typography.bodySmall)
+                    Text("Say your idea any way. Get a clear sentence back.", style = MaterialTheme.typography.bodySmall)
                 }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun SkillTile(vm: AppViewModel, t: ExerciseType, modifier: Modifier) {
+    val locked = t.needsAi && !vm.aiReady
+    val level = vm.prefs.level(t)
+    SoftCard(modifier = modifier, onClick = { vm.navigate(Screen.Practice(t)) }) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(t.emoji, fontSize = 30.sp)
+            Text(t.title, style = MaterialTheme.typography.titleSmall, minLines = 2)
+            if (locked) Text("Needs the coach", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            else Row(horizontalArrangement = Arrangement.spacedBy(3.dp), verticalAlignment = Alignment.CenterVertically) {
+                repeat(6) { i ->
+                    Box(Modifier.size(width = 14.dp, height = 6.dp).background(
+                        if (i < level) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(3.dp)))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CoachSetupBanner(vm: AppViewModel) {
+    val st = vm.localModel.status
+    SoftCard(color = MaterialTheme.colorScheme.tertiaryContainer, onClick = { vm.navigate(Screen.Caregiver) }) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Download, null, tint = MaterialTheme.colorScheme.tertiary)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(if (st is LocalModel.Status.Downloading) "Downloading the coach… ${(st.fraction * 100).toInt()}%" else "Set up the speaking coach",
+                    style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text("Conversations and smart feedback need it. Ask a caregiver.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
             }
         }
     }
@@ -213,26 +258,14 @@ fun SessionScreen(vm: AppViewModel) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Step ${s.index + 1} of ${s.plan.size}", style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.height(6.dp))
-                if (vm.prefs.rewardStyle == RewardStyle.PROGRESS || s.plan.size > 12) {
-                    LinearProgressIndicator(progress = { s.index / s.plan.size.toFloat() }, modifier = Modifier.fillMaxWidth().height(10.dp))
-                } else {
-                    StepDots(s.plan.size, s.index)
-                }
+                Text("${type.emoji}  ${type.title}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(8.dp))
+                StepBar(s.plan.size, s.index)
             }
             IconButton(onClick = { confirmQuit = true }) { Icon(Icons.Rounded.Close, contentDescription = "Stop practice") }
         }
-        Text(
-            "${type.emoji}  ${type.title}",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
-        )
         Column(Modifier.weight(1f)) {
-            key(s.index) {
-                Page { Exercise(vm, type, onNext = vm::completeStep) }
-            }
+            key(s.index) { Page { Exercise(vm, type, onNext = vm::completeStep) } }
         }
     }
 
@@ -240,7 +273,7 @@ fun SessionScreen(vm: AppViewModel) {
         AlertDialog(
             onDismissRequest = { confirmQuit = false },
             title = { Text("Stop practice?") },
-            text = { Text("You can start again any time.") },
+            text = { Text("Your answers so far are saved, and they count towards today's streak.") },
             confirmButton = { TextButton(onClick = { confirmQuit = false; vm.quitSession() }) { Text("Stop") } },
             dismissButton = { TextButton(onClick = { confirmQuit = false }) { Text("Keep going") } },
         )
@@ -276,28 +309,38 @@ fun PracticeScreen(vm: AppViewModel, type: ExerciseType) {
 // ---------------------------------------------------------------------------------------------
 
 @Composable
-fun FinishedScreen(vm: AppViewModel, done: Int, correct: Int, stars: Int) {
+fun FinishedScreen(vm: AppViewModel, done: Int, correct: Int, stars: Int, streak: Int, streakGrew: Boolean) {
     BackHandler { vm.navigate(Screen.Home) }
+    val extra = LocalExtraColors.current
+    val pop = remember { Animatable(if (vm.prefs.reduceMotion) 1f else 0.6f) }
+    LaunchedEffect(Unit) { pop.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)) }
+    val nextMilestone = streakMilestones.firstOrNull { it.days > streak }
     Page {
-        Spacer(Modifier.height(32.dp))
-        Text("✅", fontSize = 72.sp, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        Text("Practice finished", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        SoftCard(color = LocalExtraColors.current.successContainer) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("You finished all $done exercises.", style = MaterialTheme.typography.titleMedium)
-                Text("$correct were right the first time.", style = MaterialTheme.typography.bodyLarge)
-                when (vm.prefs.rewardStyle) {
-                    RewardStyle.STARS -> {
-                        Text("You earned $stars ⭐", style = MaterialTheme.typography.titleLarge)
-                        val streak = vm.prefs.streak
-                        if (streak > 1) Text("You have practised $streak days in a row.", style = MaterialTheme.typography.bodyLarge)
-                    }
-                    RewardStyle.PROGRESS -> LinearProgressIndicator(progress = { 1f }, modifier = Modifier.fillMaxWidth().height(10.dp))
-                    RewardStyle.NONE -> {}
+        Spacer(Modifier.height(16.dp))
+        HeroCard {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.scale(pop.value)) {
+                    StreakFlame(streak, color = androidx.compose.ui.graphics.Color.White, textColor = extra.heroText)
+                }
+                Text(
+                    if (streakGrew) "Your streak grew to $streak ${if (streak == 1) "day" else "days"}!" else "Practice finished",
+                    style = MaterialTheme.typography.headlineSmall, color = extra.heroText, textAlign = TextAlign.Center,
+                )
+                nextMilestone?.let {
+                    Text("${it.days - streak} more ${if (it.days - streak == 1) "day" else "days"} to unlock “${it.title}”.",
+                        style = MaterialTheme.typography.bodyMedium, color = extra.heroText.copy(alpha = 0.9f), textAlign = TextAlign.Center)
                 }
             }
         }
-        BigButton("Back to home", onClick = { vm.navigate(Screen.Home) }, modifier = Modifier.fillMaxWidth())
+        SoftCard {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("You finished all $done steps.", style = MaterialTheme.typography.titleMedium)
+                Text("$correct were right the first time.", style = MaterialTheme.typography.bodyLarge)
+                Text("+$stars ⭐   ·   ${vm.prefs.totalStars} stars in total", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        GradientButton("Back to home", onClick = { vm.navigate(Screen.Home) }, modifier = Modifier.fillMaxWidth())
+        TextButton(onClick = { vm.navigate(Screen.Talk) }, modifier = Modifier.fillMaxWidth()) { Text("Keep going: talk with your coach") }
     }
 }
 
@@ -311,19 +354,14 @@ fun HelperScreen(vm: AppViewModel) {
     var result by remember { mutableStateOf<Pair<String, String>?>(null) }
     var working by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var round by remember { mutableIntStateOf(0) }
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
 
     fun run(text: String) {
-        thought = text
-        working = true
-        error = null
+        thought = text; working = true; error = null
         scope.launch {
-            try {
-                result = vm.coach.clarify(text, vm.prefs.ageGroup)
-            } catch (e: CoachException) {
-                error = e.message
-            }
+            try { result = vm.coach.clarify(text) } catch (e: CoachException) { error = e.message }
             working = false
         }
     }
@@ -333,39 +371,31 @@ fun HelperScreen(vm: AppViewModel) {
             Text("Help me say it", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = { vm.navigate(Screen.Home) }) { Text("Done") }
         }
-        if (!vm.coach.isConfigured) {
-            Text("This helper uses Claude. A caregiver can turn it on in the Caregiver tab.", style = MaterialTheme.typography.bodyLarge)
+        if (!vm.aiReady) {
+            Text("This helper needs the speaking coach. A caregiver can set it up in the Caregiver tab.", style = MaterialTheme.typography.bodyLarge)
             return@Page
         }
-        Text("Say your idea in any way. It does not need to be in order. You will get a clear sentence back.", style = MaterialTheme.typography.bodyLarge)
-
+        Text("Say your idea in any way. It does not need to be in order.", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         when {
-            working -> Thinking("Making it clear…")
+            working -> Thinking(vm, "Making it clear…")
             result != null -> {
                 val (clear, short) = result!!
-                thought?.let {
-                    Text("You said", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(it, style = MaterialTheme.typography.bodyLarge)
-                }
-                Text("Clear way to say it", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SoftCard(color = LocalExtraColors.current.successContainer) {
-                    Text(clear, style = MaterialTheme.typography.headlineSmall)
-                }
+                thought?.let { SectionLabel("You said"); Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                SectionLabel("Clear way to say it")
+                SoftCard(color = LocalExtraColors.current.successContainer) { Text(clear, style = MaterialTheme.typography.headlineSmall) }
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ListenButton(vm, clear)
-                    TextButton(onClick = { clipboard.setText(AnnotatedString(clear)) }) {
-                        Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(6.dp)); Text("Copy")
-                    }
+                    TextButton(onClick = { clipboard.setText(AnnotatedString(clear)) }) { Icon(Icons.Rounded.ContentCopy, null); Spacer(Modifier.width(6.dp)); Text("Copy") }
                 }
                 if (short != clear) {
-                    Text("Short version", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    SectionLabel("Short version")
                     SoftCard { Text(short, style = MaterialTheme.typography.titleLarge) }
                     ListenButton(vm, short, "Listen to short version")
                 }
-                BigButton("Say something else", onClick = { result = null; thought = null }, tonal = true, modifier = Modifier.fillMaxWidth())
+                GradientButton("Say something else", onClick = { result = null; thought = null; round++ }, modifier = Modifier.fillMaxWidth())
             }
             else -> {
-                SpeakInput(vm, onText = ::run, label = "Tap and say your idea")
+                key(round) { SpeakInput(vm, onAnswer = { run(it.text) }, label = "Tap and say your idea") }
                 error?.let { Text(it, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.error) }
             }
         }

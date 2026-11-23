@@ -21,13 +21,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -39,6 +43,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -53,13 +58,20 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.simplespeak.app.ai.CoachException
+import com.simplespeak.app.ai.LocalModel
+import com.simplespeak.app.data.AiEngine
 import com.simplespeak.app.data.Attempt
+import com.simplespeak.app.data.ContentBank
 import com.simplespeak.app.data.ExerciseType
 import com.simplespeak.app.data.MistakeTypes
-import com.simplespeak.app.data.RewardStyle
+import com.simplespeak.app.data.Stats
+import com.simplespeak.app.data.Stats.day
 import com.simplespeak.app.ui.AppViewModel
 import com.simplespeak.app.ui.BigButton
+import com.simplespeak.app.ui.GradientButton
+import com.simplespeak.app.ui.SectionLabel
 import com.simplespeak.app.ui.SoftCard
+import com.simplespeak.app.ui.TrendRow
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -73,20 +85,16 @@ fun CaregiverScreen(vm: AppViewModel) {
     val attempts = remember(version) { vm.store.attempts() }
     Page {
         Text("Caregiver", style = MaterialTheme.typography.headlineMedium)
-        Text(
-            "See progress and change settings. Everything is stored only on this phone.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Text("Progress and settings. Everything is stored only on this phone.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        CoachSection(vm)
+        SectionTitle("Progress")
         ProgressSection(vm, attempts)
         RecordingsSection(vm)
         SectionTitle("Learner")
         LearnerSection(vm)
         SectionTitle("Practice settings")
         PracticeSettings(vm)
-        SectionTitle("Claude (smart feedback)")
-        ClaudeSection(vm)
-        SectionTitle("Photos for \"Describe a picture\"")
+        SectionTitle("Photos for “Describe a picture”")
         PhotosSection(vm)
         SectionTitle("Reset")
         ResetSection(vm)
@@ -96,32 +104,161 @@ fun CaregiverScreen(vm: AppViewModel) {
 
 @Composable
 private fun SectionTitle(text: String) {
-    HorizontalDivider()
+    HorizontalDivider(Modifier.padding(top = 8.dp))
     Text(text, style = MaterialTheme.typography.titleLarge)
 }
 
 private val dayFormat = DateTimeFormatter.ofPattern("EEE d MMM")
-private fun Attempt.day(): LocalDate = Instant.ofEpochMilli(time).atZone(ZoneId.systemDefault()).toLocalDate()
 private fun pct(part: Int, whole: Int) = if (whole == 0) "–" else "${(100.0 * part / whole).roundToInt()}%"
 
-// ---------------------------------------------------------------------------------------------
+// ---- Speaking coach ------------------------------------------------------------------------
+
+@Composable
+private fun CoachSection(vm: AppViewModel) {
+    val model = vm.localModel
+    val st = model.status
+    var engine by remember { mutableStateOf(vm.prefs.engine) }
+    var wifiOnly by remember { mutableStateOf(true) }
+    var message by remember { mutableStateOf<String?>(null) }
+    var testing by remember { mutableStateOf(false) }
+    var backend by remember { mutableStateOf(vm.prefs.modelBackend) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    SoftCard {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Speaking coach", style = MaterialTheme.typography.titleLarge)
+            AiEngine.entries.forEach { e ->
+                Row(
+                    Modifier.fillMaxWidth().selectable(engine == e, role = Role.RadioButton) { engine = e; vm.prefs.engine = e; vm.refresh() },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(engine == e, null)
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(e.label, style = MaterialTheme.typography.titleSmall)
+                        Text(e.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            if (engine == AiEngine.LOCAL) {
+                HorizontalDivider()
+                Text("Model: Gemma 4 E2B by Google (2.6 GB). Runs fully on the phone, works offline once downloaded.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                when (st) {
+                    is LocalModel.Status.Missing, is LocalModel.Status.Error -> {
+                        if (st is LocalModel.Status.Error) Text(st.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Download on Wi-Fi only", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                            Switch(wifiOnly, { wifiOnly = it })
+                        }
+                        GradientButton("Download the coach", onClick = { message = vm.downloadModel(wifiOnly) }, modifier = Modifier.fillMaxWidth())
+                    }
+                    is LocalModel.Status.Downloading -> {
+                        LinearProgressIndicator(progress = { st.fraction }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)))
+                        Text("${(st.fraction * 100).roundToInt()}% · ${st.note}", style = MaterialTheme.typography.bodyMedium)
+                        Text("You can leave the app; the download continues in the background.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TextButton(onClick = { model.cancelDownload(); vm.refresh() }) { Text("Cancel download") }
+                    }
+                    else -> {
+                        Text(
+                            when (st) {
+                                is LocalModel.Status.Ready -> "Ready · running on the ${st.backend}"
+                                LocalModel.Status.Loading -> "Starting up…"
+                                else -> "Downloaded · starts when first used"
+                            },
+                            style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                        )
+                        model.lastSpeed?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        SectionLabel("Processor")
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            listOf("auto" to "Automatic", "gpu" to "GPU", "cpu" to "CPU").forEach { (k, label) ->
+                                FilterChip(backend == k, onClick = {
+                                    backend = k; vm.prefs.modelBackend = k; vm.prefs.gpuFailed = false
+                                    scope.launch { model.unload() }
+                                }, label = { Text(label) })
+                            }
+                        }
+                        Text("Automatic tries the faster GPU first and switches to the CPU if this phone doesn't support it.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            BigButton("Test the coach", tonal = true, enabled = !testing, onClick = {
+                                testing = true; message = "Testing… the first start can take up to a minute."
+                                scope.launch {
+                                    message = try { vm.coach.testConnection(); "It works. ${model.lastSpeed ?: ""}" } catch (e: CoachException) { e.message }
+                                    testing = false
+                                }
+                            })
+                            TextButton(onClick = { confirmDelete = true }) { Text("Delete") }
+                        }
+                    }
+                }
+            } else {
+                ClaudeKey(vm) { message = it }
+            }
+            message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete the coach?") },
+            text = { Text("This frees 2.6 GB. Conversations and smart feedback stop working until it is downloaded again. Progress is kept.") },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; model.deleteModel(); vm.refresh() }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
+    }
+}
+
+@Composable
+private fun ClaudeKey(vm: AppViewModel, onMessage: (String?) -> Unit) {
+    var key by remember { mutableStateOf(vm.prefs.apiKey) }
+    var show by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Text("Paste an API key from console.anthropic.com. Answers (and photos used in picture practice) are sent to Anthropic, with a small cost per answer.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    OutlinedTextField(
+        key, { key = it }, label = { Text("Claude API key") }, singleLine = true, shape = RoundedCornerShape(16.dp),
+        visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = { IconButton(onClick = { show = !show }) { Icon(if (show) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (show) "Hide key" else "Show key") } },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        BigButton("Save", tonal = true, onClick = { vm.prefs.apiKey = key; vm.refresh(); onMessage(if (key.isBlank()) "Key removed." else "Saved.") })
+        BigButton("Test", tonal = true, enabled = !testing && key.isNotBlank(), onClick = {
+            vm.prefs.apiKey = key; vm.refresh(); testing = true; onMessage("Testing…")
+            scope.launch {
+                onMessage(try { vm.coach.testConnection(); "It works." } catch (e: CoachException) { e.message })
+                testing = false
+            }
+        })
+    }
+}
+
+// ---- Progress ------------------------------------------------------------------------------
 
 @Composable
 private fun ProgressSection(vm: AppViewModel, attempts: List<Attempt>) {
+    val now = Stats.week(attempts, 0)
+    val before = Stats.week(attempts, 1)
     val today = LocalDate.now()
-    val week = attempts.filter { !it.day().isBefore(today.minusDays(6)) }
-    val month = attempts.filter { !it.day().isBefore(today.minusDays(29)) }
 
     SoftCard {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Last 7 days", style = MaterialTheme.typography.titleMedium)
-            if (week.isEmpty()) {
-                Text("No practice yet this week.", style = MaterialTheme.typography.bodyLarge)
-            } else {
-                val minutes = (week.sumOf { it.seconds } / 60.0).roundToInt().coerceAtLeast(1)
-                Text("Practice time: about $minutes minute${if (minutes == 1) "" else "s"}", style = MaterialTheme.typography.bodyLarge)
-                Text("Answers: ${week.size}", style = MaterialTheme.typography.bodyLarge)
-                Text("Right the first time: ${pct(week.count { it.correct }, week.size)}", style = MaterialTheme.typography.bodyLarge)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("This week vs last week", style = MaterialTheme.typography.titleMedium)
+            if (now.answers == 0 && before.answers == 0) Text("No practice yet.", style = MaterialTheme.typography.bodyLarge)
+            else {
+                TrendRow("Answers", "${now.answers}", "${before.answers}", null)
+                TrendRow("Practice time", "${now.minutes} min", "${before.minutes} min", null)
+                TrendRow("Right first time", now.correctPct?.let { "$it%" } ?: "–", before.correctPct?.let { "$it%" }, null)
+                TrendRow("Words per spoken answer", now.wordsPerAnswer?.let { "%.1f".format(it) } ?: "–", before.wordsPerAnswer?.let { "%.1f".format(it) }, null)
+                TrendRow("Seconds before he starts", now.startSeconds?.let { "%.1f".format(it) } ?: "–", before.startSeconds?.let { "%.1f".format(it) }, null)
+                TrendRow("Speaking speed (words/min)", now.wordsPerMinute?.toString() ?: "–", before.wordsPerMinute?.toString(), null)
+                Text("Fluency numbers come from the microphone: how quickly he starts, how much he says, and how fast he speaks.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -129,99 +266,76 @@ private fun ProgressSection(vm: AppViewModel, attempts: List<Attempt>) {
     SoftCard {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Each exercise (last 7 days)", style = MaterialTheme.typography.titleMedium)
-            ExerciseType.entries.forEach { t ->
-                val list = week.filter { it.type == t }
+            ExerciseType.practice.forEach { t ->
+                val list = attempts.filter { it.type == t && !it.day().isBefore(today.minusDays(6)) }
                 Row(Modifier.fillMaxWidth()) {
                     Text("${t.emoji} ${t.title}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    Text(
-                        "Level ${vm.prefs.level(t)} · ${if (list.isEmpty()) "not practised" else "${pct(list.count { it.correct }, list.size)} of ${list.size}"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    Text("L${vm.prefs.level(t)} · ${if (list.isEmpty()) "–" else "${pct(list.count { it.correct }, list.size)} of ${list.size}"}",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
     }
 
-    val mistakes = month.flatMap { it.mistakes }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(5)
+    val month = attempts.filter { !it.day().isBefore(today.minusDays(29)) }
+    val mistakes = month.flatMap { it.mistakes }.filter { it != "other" }.groupingBy { it }.eachCount().entries.sortedByDescending { it.value }.take(5)
     SoftCard {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text("Grammar to work on (last 30 days)", style = MaterialTheme.typography.titleMedium)
-            if (mistakes.isEmpty()) {
-                Text(
-                    if (vm.coach.isConfigured) "No common mistakes found yet." else "Turn on Claude below to see which grammar areas need practice.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            } else {
-                mistakes.forEach { (key, count) ->
-                    Text("• ${MistakeTypes.label(key)}: $count time${if (count == 1) "" else "s"}", style = MaterialTheme.typography.bodyMedium)
-                }
-            }
+            if (mistakes.isEmpty()) Text("No common mistakes found yet.", style = MaterialTheme.typography.bodyMedium)
+            mistakes.forEach { (k, n) -> Text("• ${MistakeTypes.label(k)}: $n", style = MaterialTheme.typography.bodyMedium) }
         }
     }
 
-    if (week.isNotEmpty()) {
-        SoftCard {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("Day by day", style = MaterialTheme.typography.titleMedium)
-                (0..6).map { today.minusDays(it.toLong()) }.forEach { d ->
-                    val list = week.filter { it.day() == d }
-                    Row(Modifier.fillMaxWidth()) {
-                        Text(if (d == today) "Today" else d.format(dayFormat), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        Text(
-                            if (list.isEmpty()) "—" else "${list.size} answers, ${list.count { it.correct }} right",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
-        }
-
+    if (attempts.isNotEmpty()) {
         SoftCard {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Recent answers", style = MaterialTheme.typography.titleMedium)
-                attempts.takeLast(10).reversed().forEach { a ->
+                attempts.takeLast(12).reversed().forEach { a ->
                     Column {
-                        Text("${a.type.emoji} ${a.prompt}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("${if (a.correct) "✓" else "○"}  \"${a.answer}\"", style = MaterialTheme.typography.bodyMedium)
+                        Text("${a.type.emoji} ${a.prompt}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2)
+                        Text("${if (a.correct) "✓" else "○"}  “${a.answer}”", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
         }
     }
 }
-
-// ---------------------------------------------------------------------------------------------
 
 @Composable
 private fun RecordingsSection(vm: AppViewModel) {
-    val recordings = remember(vm.dataVersion) { vm.store.recordings() }
+    val all = remember(vm.dataVersion) { vm.store.recordings() }
+    var answers by remember { mutableStateOf(true) }
+    val list = all.filter { it.answer == answers }
     SoftCard {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Voice recordings", style = MaterialTheme.typography.titleMedium)
-            if (recordings.isEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(answers, { answers = true }, label = { Text("His answers") })
+                FilterChip(!answers, { answers = false }, label = { Text("Practice repeats") })
+            }
+            if (list.isEmpty()) {
                 Text(
-                    "When the learner taps \"Record my voice\" after an exercise, the clip is saved here so you can hear progress over time.",
+                    if (answers) {
+                        if (vm.prefs.answerCaptureBroken) "This phone's speech service can't share the microphone, so his answers can't be saved while he speaks. He can still use “Record myself” after each exercise."
+                        else "His spoken answers are saved here, so you can hear how he improves."
+                    } else "When he taps “Record myself” after an exercise, the clip is saved here.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
-            recordings.take(30).forEach { r ->
+            list.take(40).forEach { r ->
                 val playing = vm.recorder.playingPath == r.path
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { if (playing) vm.recorder.stopPlayback() else vm.recorder.play(r.path) }) {
-                        Icon(if (playing) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, contentDescription = if (playing) "Stop" else "Play")
+                        Icon(if (playing) Icons.Rounded.Stop else Icons.Rounded.PlayArrow, if (playing) "Stop" else "Play")
                     }
                     Column(Modifier.weight(1f)) {
-                        Text(r.sentence, style = MaterialTheme.typography.bodyMedium)
-                        Text(
-                            Instant.ofEpochMilli(r.time).atZone(ZoneId.systemDefault()).toLocalDate().format(dayFormat),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Text(r.sentence, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
+                        Text(Instant.ofEpochMilli(r.time).atZone(ZoneId.systemDefault()).toLocalDate().format(dayFormat),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = { vm.recorder.stopPlayback(); vm.store.deleteRecording(r.id); vm.refresh() }) {
-                        Icon(Icons.Rounded.Delete, contentDescription = "Delete recording")
+                        Icon(Icons.Rounded.Delete, "Delete recording")
                     }
                 }
             }
@@ -229,136 +343,82 @@ private fun RecordingsSection(vm: AppViewModel) {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
+// ---- Settings --------------------------------------------------------------------------------
 
 @Composable
 private fun LearnerSection(vm: AppViewModel) {
     var name by remember { mutableStateOf(vm.prefs.learnerName) }
     var age by remember { mutableStateOf(vm.prefs.ageGroup) }
-    OutlinedTextField(
-        value = name,
-        onValueChange = { name = it; vm.prefs.learnerName = it },
-        label = { Text("First name") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Text("Age group (changes the sentences and wording)", style = MaterialTheme.typography.bodyMedium)
+    var interests by remember { mutableStateOf(vm.prefs.interests) }
+    OutlinedTextField(name, { name = it; vm.prefs.learnerName = it }, label = { Text("First name") }, singleLine = true,
+        shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
     AgePicker(age) { age = it; vm.prefs.ageGroup = it }
+    OutlinedTextField(interests, { interests = it; vm.prefs.interests = it }, label = { Text("Things he likes (comma separated)") },
+        placeholder = { Text("e.g. trains, football, cooking") }, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+    Text("Interests make practice sentences, questions and conversation topics more personal.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+private fun SwitchRow(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Switch(checked, onChange)
+    }
 }
 
 @Composable
 private fun PracticeSettings(vm: AppViewModel) {
     var length by remember { mutableFloatStateOf(vm.prefs.sessionLength.toFloat()) }
+    var think by remember { mutableFloatStateOf(vm.prefs.thinkSeconds.toFloat()) }
+    var goal by remember { mutableFloatStateOf(vm.prefs.dailyGoal.toFloat()) }
     var rate by remember { mutableFloatStateOf(vm.prefs.speechRate) }
-    var reward by remember { mutableStateOf(vm.prefs.rewardStyle) }
-    var enabled by remember { mutableStateOf(ExerciseType.entries.associateWith { vm.prefs.isEnabled(it) }) }
+    var enabled by remember { mutableStateOf(ExerciseType.practice.associateWith { vm.prefs.isEnabled(it) }) }
+    var levels by remember { mutableStateOf(ExerciseType.practice.associateWith { vm.prefs.level(it) }) }
+    var saveAnswers by remember { mutableStateOf(vm.prefs.saveAnswers) }
+    var speakReplies by remember { mutableStateOf(vm.prefs.speakReplies) }
+    var reduceMotion by remember { mutableStateOf(vm.prefs.reduceMotion) }
+    var captureBroken by remember { mutableIntStateOf(if (vm.prefs.answerCaptureBroken) 1 else 0) }
 
-    Text("Session length: ${length.roundToInt()} exercises (about ${(length * 1.5).roundToInt()} minutes)", style = MaterialTheme.typography.bodyLarge)
-    Slider(
-        value = length,
-        onValueChange = { length = it },
-        onValueChangeFinished = { vm.prefs.sessionLength = length.roundToInt() },
-        valueRange = 3f..15f,
-        steps = 11,
-    )
+    Text("Session length: ${length.roundToInt()} steps", style = MaterialTheme.typography.bodyLarge)
+    Slider(length, { length = it }, onValueChangeFinished = { vm.prefs.sessionLength = length.roundToInt(); vm.refresh() }, valueRange = 3f..15f, steps = 11)
 
-    Text("Exercises in a session", style = MaterialTheme.typography.bodyLarge)
-    ExerciseType.entries.forEach { t ->
+    Text("Think time before speaking: ${if (think.roundToInt() == 0) "off" else "${think.roundToInt()} seconds"}", style = MaterialTheme.typography.bodyLarge)
+    Slider(think, { think = it }, onValueChangeFinished = { vm.prefs.thinkSeconds = think.roundToInt() }, valueRange = 0f..15f, steps = 14)
+    Text("A short countdown to plan, then the microphone opens by itself. This builds planning in real time. Lower it as he gets faster.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+    Text("Daily goal: ${goal.roundToInt()} answers", style = MaterialTheme.typography.bodyLarge)
+    Slider(goal, { goal = it }, onValueChangeFinished = { vm.prefs.dailyGoal = goal.roundToInt(); vm.refresh() }, valueRange = 5f..40f, steps = 6)
+
+    SectionLabel("Exercises and levels")
+    Text("Levels change automatically. You can also set a starting level (1–6). Levels 4–6 use the coach to write new practice.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    ExerciseType.practice.forEach { t ->
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("${t.emoji} ${t.title}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            Switch(checked = enabled[t] == true, onCheckedChange = { on ->
-                // Keep at least one exercise turned on.
-                if (on || enabled.count { it.value } > 1) {
-                    vm.prefs.setEnabled(t, on)
-                    enabled = enabled + (t to on)
-                }
+            IconButton(onClick = { val l = (levels.getValue(t) - 1).coerceAtLeast(1); vm.prefs.setLevel(t, l); levels = levels + (t to l) }) { Icon(Icons.Rounded.Remove, "Lower level") }
+            Text("L${levels.getValue(t)}", style = MaterialTheme.typography.titleSmall)
+            IconButton(onClick = { val l = (levels.getValue(t) + 1).coerceAtMost(ContentBank.MAX_LEVEL); vm.prefs.setLevel(t, l); levels = levels + (t to l) }) { Icon(Icons.Rounded.Add, "Raise level") }
+            Switch(enabled[t] == true, { on ->
+                if (on || enabled.count { it.value } > 1) { vm.prefs.setEnabled(t, on); enabled = enabled + (t to on); vm.refresh() }
             })
         }
     }
-    Text(
-        "Exercises that need Claude are left out of sessions until a key is added.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 
-    Text("Rewards", style = MaterialTheme.typography.bodyLarge)
-    RewardStyle.entries.forEach { r ->
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .selectable(selected = reward == r, role = Role.RadioButton, onClick = { reward = r; vm.prefs.rewardStyle = r })
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            RadioButton(selected = reward == r, onClick = null)
-            Spacer(Modifier.width(8.dp))
-            Column {
-                Text(r.label, style = MaterialTheme.typography.bodyLarge)
-                Text(r.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+    SectionLabel("Voice and display")
+    SwitchRow("Save his spoken answers", "So you can hear his progress in Voice recordings.", saveAnswers) { saveAnswers = it; vm.prefs.saveAnswers = it }
+    if (captureBroken == 1) {
+        Text("This phone's speech service did not accept shared audio last time, so answers aren't being saved.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = { vm.prefs.answerCaptureBroken = false; captureBroken = 0 }) { Text("Try again") }
     }
-
+    SwitchRow("Read the coach's replies aloud", null, speakReplies) { speakReplies = it; vm.prefs.speakReplies = it }
+    SwitchRow("Reduce motion", "Stops the coach's breathing animation.", reduceMotion) { reduceMotion = it; vm.prefs.reduceMotion = it; vm.refresh() }
     Text("Reading voice speed", style = MaterialTheme.typography.bodyLarge)
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text("Slow", style = MaterialTheme.typography.bodySmall)
-        Slider(
-            value = rate,
-            onValueChange = { rate = it },
-            onValueChangeFinished = { vm.prefs.speechRate = rate; vm.speaker.say("This is how fast I will read.") },
-            valueRange = 0.5f..1.2f,
-            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-        )
-        Text("Fast", style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-@Composable
-private fun ClaudeSection(vm: AppViewModel) {
-    var key by remember { mutableStateOf(vm.prefs.apiKey) }
-    var show by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf<String?>(null) }
-    var testing by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-
-    Text(
-        "Claude checks spoken sentences, describes pictures and powers \"Help me say it\". " +
-            "Create an API key at console.anthropic.com and paste it here. Use costs a few cents per session " +
-            "and is billed to that Anthropic account. The learner's sentences (and photos used in picture practice) " +
-            "are sent to Anthropic to be checked.",
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    OutlinedTextField(
-        value = key,
-        onValueChange = { key = it; status = null },
-        label = { Text("Claude API key") },
-        singleLine = true,
-        visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-            IconButton(onClick = { show = !show }) {
-                Icon(if (show) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, contentDescription = if (show) "Hide key" else "Show key")
-            }
-        },
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        BigButton("Save", onClick = { vm.prefs.apiKey = key; status = if (key.isBlank()) "Key removed." else "Saved."; vm.refresh() })
-        BigButton("Test", tonal = true, enabled = !testing && key.isNotBlank(), onClick = {
-            vm.prefs.apiKey = key
-            vm.refresh()
-            testing = true
-            status = "Testing…"
-            scope.launch {
-                status = try {
-                    vm.coach.testConnection(); "It works. Smart feedback is on."
-                } catch (e: CoachException) {
-                    e.message
-                }
-                testing = false
-            }
-        })
-    }
-    status?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+    Slider(rate, { rate = it }, onValueChangeFinished = { vm.prefs.speechRate = rate; vm.speaker.say("This is how fast I will read.") }, valueRange = 0.5f..1.3f)
 }
 
 @Composable
@@ -366,50 +426,28 @@ private fun PhotosSection(vm: AppViewModel) {
     val photos = remember(vm.dataVersion) { vm.store.photos() }
     var pending by remember { mutableStateOf<Uri?>(null) }
     var caption by remember { mutableStateOf("") }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null) { pending = uri; caption = "" }
-    }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> if (uri != null) { pending = uri; caption = "" } }
 
-    Text(
-        "Add photos of familiar people, places and things. Personal photos make practice more meaningful. " +
-            "Add a short note so the feedback understands the photo (for example \"Grandma in her garden\").",
-        style = MaterialTheme.typography.bodyMedium,
-    )
-    OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
+    Text("Add photos of familiar people, places and things. The coach can look at the photo to check his description.",
+        style = MaterialTheme.typography.bodyMedium)
+    OutlinedButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, shape = RoundedCornerShape(24.dp)) {
         Icon(Icons.Rounded.AddPhotoAlternate, null); Spacer(Modifier.width(8.dp)); Text("Add a photo")
     }
     photos.forEach { p ->
-        val bmp = remember(p.path) {
-            val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
-            BitmapFactory.decodeFile(p.path, opts)?.asImageBitmap()
-        }
+        val bmp = remember(p.path) { BitmapFactory.decodeFile(p.path, BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap() }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (bmp != null) {
-                Image(bmp, null, Modifier.size(72.dp).clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Crop)
-            }
+            if (bmp != null) Image(bmp, null, Modifier.size(72.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)
             Spacer(Modifier.width(12.dp))
             Text(p.caption.ifBlank { "(no note)" }, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-            IconButton(onClick = { vm.store.deletePhoto(p.id); vm.refresh() }) { Icon(Icons.Rounded.Delete, contentDescription = "Delete photo") }
+            IconButton(onClick = { vm.store.deletePhoto(p.id); vm.refresh() }) { Icon(Icons.Rounded.Delete, "Delete photo") }
         }
     }
-
     if (pending != null) {
         AlertDialog(
             onDismissRequest = { pending = null },
             title = { Text("Add a note") },
-            text = {
-                OutlinedTextField(value = caption, onValueChange = { caption = it }, label = { Text("What is in this photo?") })
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val uri = pending
-                    pending = null
-                    if (uri != null) {
-                        vm.store.importPhoto(uri, caption)
-                        vm.refresh()
-                    }
-                }) { Text("Add") }
-            },
+            text = { OutlinedTextField(caption, { caption = it }, label = { Text("What is in this photo?") }) },
+            confirmButton = { TextButton(onClick = { val u = pending; pending = null; if (u != null) { vm.store.importPhoto(u, caption); vm.refresh() } }) { Text("Add") } },
             dismissButton = { TextButton(onClick = { pending = null }) { Text("Cancel") } },
         )
     }
@@ -418,17 +456,13 @@ private fun PhotosSection(vm: AppViewModel) {
 @Composable
 private fun ResetSection(vm: AppViewModel) {
     var confirm by remember { mutableStateOf(false) }
-    OutlinedButton(onClick = { confirm = true }) { Text("Clear progress and levels") }
+    OutlinedButton(onClick = { confirm = true }, shape = RoundedCornerShape(24.dp)) { Text("Clear progress and levels") }
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
             title = { Text("Clear progress?") },
-            text = { Text("This removes the answer history, stars, streak and levels. Recordings, photos and settings are kept.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.store.clearProgress(); vm.prefs.resetProgress(); vm.refresh(); confirm = false
-                }) { Text("Clear") }
-            },
+            text = { Text("This removes the answer history, stars, streak and levels. Recordings, photos, settings and the coach are kept.") },
+            confirmButton = { TextButton(onClick = { vm.store.clearProgress(); vm.prefs.resetProgress(); vm.refresh(); confirm = false }) { Text("Clear") } },
             dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } },
         )
     }

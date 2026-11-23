@@ -1,10 +1,21 @@
 package com.simplespeak.app.data
 
-enum class ExerciseType(val title: String, val emoji: String, val needsAi: Boolean) {
-    BUILD("Build a sentence", "🧩", false),
-    FIX("Fix the sentence", "🛠️", false),
-    PICTURE("Describe a picture", "🖼️", true),
-    PLAN("Plan my sentence", "🗺️", false),
+enum class ExerciseType(val title: String, val short: String, val emoji: String, val needsAi: Boolean, val spoken: Boolean) {
+    ANSWER("Answer the question", "Answer", "💬", true, true),
+    FIX("Fix the sentence", "Fix", "🛠️", false, true),
+    JOIN("Join the ideas", "Join", "🔗", false, true),
+    SEQUENCE("Tell it in order", "Order", "🔢", false, true),
+    PICTURE("Describe a picture", "Picture", "🖼️", true, true),
+    PLAN("Plan my sentence", "Plan", "🗺️", false, true),
+    BUILD("Build a sentence", "Build", "🧩", false, false),
+    /** Conversation turns with the coach (not part of sessions). */
+    TALK("Conversation", "Talk", "🗣️", true, true),
+    ;
+
+    companion object {
+        /** The exercises that appear in sessions and on the Home grid. */
+        val practice: List<ExerciseType> get() = entries.filter { it != TALK }
+    }
 }
 
 enum class AgeGroup(val label: String) {
@@ -13,13 +24,12 @@ enum class AgeGroup(val label: String) {
     ADULT("Adult"),
 }
 
-enum class RewardStyle(val label: String, val description: String) {
-    STARS("Stars and streak", "A star for each exercise and a count of practice days in a row."),
-    PROGRESS("Progress only", "A simple bar that shows how much of the session is done."),
-    NONE("No rewards", "Just a calm \"finished\" message at the end."),
+enum class AiEngine(val label: String, val description: String) {
+    LOCAL("On this phone", "Free and private. Uses the Gemma model downloaded to the phone."),
+    CLAUDE("Claude (online)", "Needs internet and a Claude API key. Small cost per answer."),
 }
 
-/** Grammar areas Claude can tag. Keys are stored; labels are shown to the caregiver. */
+/** Grammar areas the coach can tag. Keys are stored; labels are shown. */
 object MistakeTypes {
     val labels = linkedMapOf(
         "word_order" to "Word order",
@@ -39,6 +49,18 @@ object MistakeTypes {
     fun label(key: String) = labels[key] ?: key
 }
 
+/** How he spoke, measured from the microphone. */
+data class Fluency(
+    /** Milliseconds from the microphone opening to his first word. */
+    val startMs: Long?,
+    /** Milliseconds he spent speaking. */
+    val speakMs: Long?,
+    val words: Int,
+) {
+    val wordsPerMinute: Int?
+        get() = speakMs?.takeIf { it > 1500 }?.let { (words * 60_000L / it).toInt() }
+}
+
 data class Attempt(
     val time: Long,
     val type: ExerciseType,
@@ -48,6 +70,8 @@ data class Attempt(
     val correct: Boolean,
     val mistakes: List<String>,
     val seconds: Int,
+    val fluency: Fluency? = null,
+    val audioPath: String? = null,
 )
 
 data class Recording(
@@ -55,6 +79,8 @@ data class Recording(
     val time: Long,
     val sentence: String,
     val path: String,
+    /** true = his own spoken answer, false = him repeating the clear sentence. */
+    val answer: Boolean = false,
 )
 
 data class Photo(
@@ -62,6 +88,8 @@ data class Photo(
     val path: String,
     val caption: String,
 )
+
+data class BetterWord(val insteadOf: String, val tryWord: String)
 
 /** Result shown in the feedback card after the learner answers. */
 data class Feedback(
@@ -71,5 +99,9 @@ data class Feedback(
     val improved: String,
     val tip: String,
     val mistakes: List<String>,
+    val betterWords: List<BetterWord> = emptyList(),
+    val organization: String = "",
+    /** The same idea said at a more advanced level. */
+    val nextLevel: String = "",
     val note: String? = null,
 )

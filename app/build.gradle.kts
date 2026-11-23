@@ -20,8 +20,10 @@ android {
         applicationId = "com.simplespeak.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
+        // The on-device model runtime is 64-bit ARM only (all modern Android phones, including the Galaxy A56).
+        ndk { abiFilters += "arm64-v8a" }
     }
 
     signingConfigs {
@@ -86,6 +88,9 @@ dependencies {
 
     // Claude API (official Anthropic Java SDK, works from Kotlin)
     implementation("com.anthropic:anthropic-java:3.12.0")
+
+    // On-device language model (Gemma 4 E2B) via Google's LiteRT-LM
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.19.1")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20250517")

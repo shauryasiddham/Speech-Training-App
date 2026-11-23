@@ -1,38 +1,62 @@
 # SimpleSpeak
 
-An Android app that helps autistic people of all ages turn their ideas into clear, grammatical spoken sentences. It is built with Kotlin and Jetpack Compose, and Claude gives the feedback.
+An Android app that helps autistic people of all ages turn their ideas into clear, grammatical spoken sentences. It is built with Kotlin and Jetpack Compose. The feedback comes from a coach that runs on the phone (Gemma 4 through LiteRT-LM), or optionally from Claude.
 
-## What's in version 1
+## What's in version 2
 
-| Exercise | How it works | Needs Claude? |
-|---|---|---|
-| 🧩 **Build a sentence** | Tap word tiles into the right order, then say the sentence out loud. | No |
-| 🛠️ **Fix the sentence** | See a sentence with a grammar mistake and say it correctly. | Optional (checks on the phone without it) |
-| 🖼️ **Describe a picture** | Describe a built-in scene or one of the caregiver's own photos. | Yes |
-| 🗺️ **Plan my sentence** | Answer Who / Did what / Where / When / Why, get one clear sentence, then say it. | Optional |
-| 💬 **Help me say it** | Say a messy thought and get a clear sentence (plus a short version) to read or say. | Yes |
+**Speaking comes first, and practice is in real time.**
+- Every exercise is answered by voice.
+- Before the microphone opens there's a short think time (the caregiver sets 0–15 seconds), then it opens by itself.
+- Typing appears only if the microphone fails twice in a row.
 
-- **Gentle feedback:** praise comes first. Then "You said" is shown next to "A clear way to say it", with the changed words highlighted and one simple tip.
-- **Adaptive levels (1–3)** for each exercise. The level goes up after 4 of the last 5 answers are right, and down after 3 of the last 4 are wrong.
-- **Predictable sessions:** the same order every time, a step indicator, and a clear "finished" screen.
-- **Calm design:** muted colours, large text, no flashing or sounds, and picture cues next to the words.
-- **Read aloud:** text-to-speech at a speed the caregiver sets. **Record my voice** saves clips the caregiver can play back later.
-- **Caregiver tab** (not locked):
-  - progress for the last 7 days and each exercise's level
-  - the grammar areas the learner finds hardest, plus day-by-day totals and recent answers
-  - voice recordings
-  - settings: name, age group, session length, which exercises are included, and reward style (stars and streak / progress bar / none)
-  - the Claude API key, with a test button
-  - personal photos
+**A speaking coach that runs on the phone.**
+- It uses Google's Gemma 4 E2B model through LiteRT-LM. It's free, private and works offline.
+- The model is a one-time 2.6 GB download from the Caregiver tab.
+- Claude (online, with an API key) is available as an optional alternative.
 
-Everything is stored only on the phone. When Claude is used, the learner's sentences and any photos used in practice are sent to Anthropic to be checked.
+| Exercise | What he does |
+|---|---|
+| 💬 **Answer the question** | Hears a question, thinks, then answers in full sentences |
+| 🛠️ **Fix the sentence** | Says a sentence with mistakes correctly. The AI writes fresh sentences at his level and the app adds realistic mistakes |
+| 🔗 **Join the ideas** | Says 2–3 short sentences as one linked sentence (because, so, although…) |
+| 🔢 **Tell it in order** | Puts the steps in order, then tells them as a story (first, then, finally) |
+| 🖼️ **Describe a picture** | Built-in scenes or the caregiver's photos. The coach can look at the photos |
+| 🗺️ **Plan my sentence** | Who / What / Where / When / Why, then says the whole sentence |
+| 🧩 **Build a sentence** | Word tiles (off by default, as a warm-up) |
+| 🗣️ **Talk with your coach** | A spoken conversation on a topic he chooses, with a clearer version of each answer as he goes |
+
+**Feedback** on each answer covers:
+- grammar, with the changed words highlighted and a one-line rule
+- better words to use
+- how to organise his ideas
+- a "level up" version of what he said, so he can hear the same idea expressed at a higher level
+
+Praise mentions real improvements, which the app works out from his progress numbers.
+
+**Levels 1–6** adjust automatically, and the caregiver can also set a starting level. Levels 4–6 use sentences written by the coach.
+
+**Motivation:**
+- a day streak with a 7-day calendar
+- a daily goal ring
+- streak badges (3, 7, 14, 30, 60 and 100 days)
+- stars
+- a celebration screen when a session ends
+
+**Caregiver tab:**
+- downloading and testing the coach, and choosing GPU or CPU
+- fluency trends: how many words he says per answer, how long he takes to start, and how fast he speaks
+- grammar areas to work on
+- **his saved spoken answers** (on Android 13+, when the phone's speech service allows it)
+- settings, photos and his interests
+
+Pronunciation feedback is not included yet. Gemma 4 can take audio input, so it could be added in a later version.
 
 ## Install on a phone
 
-1. Copy `release/SimpleSpeak-v1.0.apk` to the Android phone (for example through Google Drive, email or a USB cable). The phone needs Android 8.0 or newer.
+1. Copy `release/SimpleSpeak-v2.0.apk` to the Android phone (for example through Google Drive, email or a USB cable). The phone needs Android 8.0 or newer and a 64-bit ARM processor. Version 2 installs over version 1 and keeps his progress.
 2. Open the file on the phone. If Android asks, allow your browser or Files app to "install unknown apps".
 3. Open **SimpleSpeak**, enter the learner's name and age group, and allow the microphone when asked.
-4. To turn on smart feedback, go to **Caregiver → Claude**, paste an API key from https://console.anthropic.com, and tap **Test**.
+4. Go to **Caregiver → Speaking coach** and tap **Download the coach** (2.6 GB, best on Wi-Fi). When it finishes, tap **Test the coach**. The first start can take up to a minute.
 
 ## Build from source
 

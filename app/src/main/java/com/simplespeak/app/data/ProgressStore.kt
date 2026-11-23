@@ -31,6 +31,12 @@ class ProgressStore(private val context: Context) {
                 correct = o.getBoolean("correct"),
                 mistakes = o.optJSONArray("mistakes")?.let { a -> List(a.length()) { a.getString(it) } } ?: emptyList(),
                 seconds = o.optInt("seconds", 0),
+                fluency = if (o.has("words")) Fluency(
+                    startMs = o.optLong("start_ms", -1).takeIf { it >= 0 },
+                    speakMs = o.optLong("speak_ms", -1).takeIf { it >= 0 },
+                    words = o.optInt("words"),
+                ) else null,
+                audioPath = o.optString("audio").ifBlank { null },
             )
         }.getOrNull()
     }
@@ -48,6 +54,14 @@ class ProgressStore(private val context: Context) {
                 .put("correct", a.correct)
                 .put("mistakes", JSONArray(a.mistakes))
                 .put("seconds", a.seconds)
+                .apply {
+                    a.fluency?.let { f ->
+                        put("words", f.words)
+                        f.startMs?.let { put("start_ms", it) }
+                        f.speakMs?.let { put("speak_ms", it) }
+                    }
+                    a.audioPath?.let { put("audio", it) }
+                }
         )
         attemptsFile.writeText(arr.toString())
     }
@@ -57,20 +71,20 @@ class ProgressStore(private val context: Context) {
     @Synchronized
     fun recordings(): List<Recording> = readArray(recordingsFile).mapNotNull { o ->
         runCatching {
-            Recording(o.getString("id"), o.getLong("time"), o.optString("sentence"), o.getString("path"))
+            Recording(o.getString("id"), o.getLong("time"), o.optString("sentence"), o.getString("path"), o.optBoolean("answer", false))
         }.getOrNull()
     }.filter { File(it.path).exists() }.sortedByDescending { it.time }
 
-    fun newRecordingFile(): File = File(recordingsDir, "${System.currentTimeMillis()}.m4a")
+    fun newRecordingFile(ext: String = "m4a"): File = File(recordingsDir, "${System.currentTimeMillis()}.$ext")
 
+    /** Keeps the newest 300 clips so storage doesn't grow forever. */
     @Synchronized
-    fun addRecording(file: File, sentence: String) {
-        val arr = JSONArray(readArray(recordingsFile))
-        arr.put(
-            JSONObject().put("id", UUID.randomUUID().toString()).put("time", System.currentTimeMillis())
-                .put("sentence", sentence).put("path", file.absolutePath)
-        )
-        recordingsFile.writeText(arr.toString())
+    fun addRecording(file: File, sentence: String, answer: Boolean = false) {
+        val list = readArray(recordingsFile).toMutableList()
+        list += JSONObject().put("id", UUID.randomUUID().toString()).put("time", System.currentTimeMillis())
+            .put("sentence", sentence).put("path", file.absolutePath).put("answer", answer)
+        while (list.size > 300) File(list.removeAt(0).optString("path")).delete()
+        recordingsFile.writeText(JSONArray(list).toString())
     }
 
     @Synchronized

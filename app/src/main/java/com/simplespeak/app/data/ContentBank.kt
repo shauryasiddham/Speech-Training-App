@@ -5,7 +5,22 @@ package com.simplespeak.app.data
  * with joining words. Items marked for an age group only appear for that group.
  */
 object ContentBank {
-    const val MAX_LEVEL = 3
+    /** Levels 1–3 have built-in content; 4–6 are written fresh by the AI coach. */
+    const val MAX_LEVEL = 6
+    const val MAX_BUILT_IN_LEVEL = 3
+
+    /** What each level means, used when asking the AI for new practice. */
+    val levelDescriptions = mapOf(
+        1 to "short simple sentences of 4 to 6 words in the present tense",
+        2 to "sentences of 6 to 9 words using past or future tense",
+        3 to "sentences of 9 to 12 words with one linking word such as because, so, but or when",
+        4 to "sentences of 12 to 16 words with two clauses joined by although, unless, while, if or before",
+        5 to "sentences of 16 to 22 words with relative clauses (who, which, where), conditionals or reported speech",
+        6 to "two connected sentences (22 to 30 words in total) using perfect tenses, the passive voice and precise, advanced vocabulary",
+    )
+
+    data class JoinItem(val level: Int, val parts: List<String>, val answers: List<String>)
+    data class SequenceItem(val title: String, val steps: List<Pair<String, String>>) // (emoji, short step) in the right order
 
     data class BuildItem(val level: Int, val sentence: String, val hint: String, val ages: Set<AgeGroup> = ALL)
     data class FixItem(val level: Int, val broken: String, val answers: List<String>, val ages: Set<AgeGroup> = ALL)
@@ -121,7 +136,39 @@ object ContentBank {
         "Something that made you feel happy",
     )
 
-    fun buildFor(level: Int, age: AgeGroup) = buildItems.filter { it.level == level && age in it.ages }
-    fun fixFor(level: Int, age: AgeGroup) = fixItems.filter { it.level == level && age in it.ages }
+    val joinItems = listOf(
+        JoinItem(1, listOf("I was hungry.", "I ate a sandwich."), listOf("I was hungry, so I ate a sandwich.", "I ate a sandwich because I was hungry.")),
+        JoinItem(1, listOf("It was raining.", "We stayed inside."), listOf("It was raining, so we stayed inside.", "We stayed inside because it was raining.")),
+        JoinItem(1, listOf("I like football.", "I like basketball."), listOf("I like football and basketball.")),
+        JoinItem(2, listOf("I wanted to go out.", "I had too much homework."), listOf("I wanted to go out, but I had too much homework.")),
+        JoinItem(2, listOf("The shop was closed.", "We went to a different one."), listOf("The shop was closed, so we went to a different one.")),
+        JoinItem(2, listOf("I finished my work.", "I watched a film."), listOf("After I finished my work, I watched a film.", "I finished my work and then I watched a film.")),
+        JoinItem(3, listOf("I was tired.", "I kept studying.", "The test was tomorrow."), listOf("Although I was tired, I kept studying because the test was tomorrow.")),
+        JoinItem(3, listOf("The bus was late.", "I missed the start of the lesson.", "My teacher was not happy."), listOf("The bus was late, so I missed the start of the lesson and my teacher was not happy.")),
+        JoinItem(3, listOf("You can come with us.", "You must be ready by six."), listOf("You can come with us if you are ready by six.", "You can come with us, but you must be ready by six.")),
+    )
+
+    val questions = mapOf(
+        1 to listOf("What did you eat today?", "What is your favourite food?", "Where do you live?", "What do you like to do after school or work?", "What is the weather like today?"),
+        2 to listOf("What did you do last weekend?", "What are you going to do tomorrow?", "Tell me about a place you like to visit.", "What is your favourite film or show, and why?", "Who is someone you spend a lot of time with?"),
+        3 to listOf("Describe your perfect day from morning to night.", "What is something you are good at, and how did you learn it?", "Tell me about a problem you solved recently.", "If you could visit any country, where would you go and why?", "What would you change about your town and why?"),
+        4 to listOf("Do you think phones should be allowed in schools? Give reasons.", "Explain how to make your favourite meal, step by step.", "What makes someone a good friend?"),
+        5 to listOf("Should people work four days a week instead of five? Explain both sides.", "Describe a time you changed your mind about something.", "How has technology changed the way people talk to each other?"),
+        6 to listOf("What is one rule you would make for the whole country, and what might go wrong?", "Explain a hobby to someone who has never heard of it.", "Is it better to be honest or to be kind? Give an example."),
+    )
+
+    val sequences = listOf(
+        SequenceItem("Making toast", listOf("🍞" to "Take bread from the bag", "🔥" to "Put it in the toaster", "🧈" to "Spread butter on it", "😋" to "Eat the toast")),
+        SequenceItem("Going to school", listOf("⏰" to "The alarm rings", "👕" to "Get dressed", "🚌" to "Catch the bus", "🏫" to "Arrive at school")),
+        SequenceItem("Planting a seed", listOf("🪴" to "Fill a pot with soil", "🌰" to "Push in the seed", "💧" to "Water it every day", "🌱" to "A small plant grows")),
+        SequenceItem("Buying a ticket", listOf("🚉" to "Walk into the station", "🧾" to "Choose a ticket on the machine", "💳" to "Pay with a card", "🚆" to "Get on the train")),
+        SequenceItem("A rainy walk", listOf("🚶" to "Go out for a walk", "🌧️" to "It starts to rain", "☂️" to "Open the umbrella", "🏠" to "Walk home quickly")),
+    )
+
+    fun joinFor(level: Int) = joinItems.filter { it.level == level.coerceAtMost(MAX_BUILT_IN_LEVEL) }.ifEmpty { joinItems }
+    fun questionsFor(level: Int) = questions[level] ?: questions.getValue(3)
+
+    fun buildFor(level: Int, age: AgeGroup) = buildItems.filter { it.level == level.coerceAtMost(MAX_BUILT_IN_LEVEL) && age in it.ages }
+    fun fixFor(level: Int, age: AgeGroup) = fixItems.filter { it.level == level.coerceAtMost(MAX_BUILT_IN_LEVEL) && age in it.ages }
     fun scenesFor(level: Int) = scenes.filter { it.level <= level }
 }
