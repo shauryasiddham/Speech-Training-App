@@ -7,7 +7,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.simplespeak.app.ai.ClaudeBackend
 import com.simplespeak.app.ai.Coach
 import com.simplespeak.app.ai.JoinTask
 import com.simplespeak.app.ai.LearnerProfile
@@ -57,15 +56,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val speaker = Speaker(app) { prefs.speechRate }
     val recorder = VoiceRecorder(app)
     val localModel = LocalModel(app, prefs)
-    val claude = ClaudeBackend(apiKeyProvider = { prefs.apiKey })
     val mac = OllamaBackend(urlProvider = { prefs.macUrl }, modelProvider = { prefs.macModel })
 
     /** null = not checked yet, true = the Mac answered, false = it couldn't be reached. */
     var macReachable by mutableStateOf<Boolean?>(null)
         private set
 
-    private val claudeFallback: () -> ClaudeBackend? = { claude.takeIf { prefs.fallbackToClaude && it.isConfigured } }
-    private val macWithFallback = FallbackBackend(mac, claudeFallback) { ok ->
+    /** The phone's own model, used when the Mac is away (if it is downloaded and allowed). */
+    private val phoneFallback: () -> LocalModel? = { localModel.takeIf { prefs.phoneWhenMacAway && it.isDownloaded } }
+    private val macWithFallback = FallbackBackend(mac, phoneFallback) { ok ->
         if (macReachable != ok) macReachable = ok
         if (!ok) rediscoverMac()
     }
@@ -73,9 +72,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val coach = Coach(
         backendProvider = {
             when (prefs.engine) {
-                AiEngine.MAC -> if (mac.isConfigured) macWithFallback else claudeFallback()
+                AiEngine.MAC -> if (mac.isConfigured) macWithFallback else phoneFallback()
                 AiEngine.LOCAL -> localModel.takeIf { it.isDownloaded }
-                AiEngine.CLAUDE -> claude.takeIf { it.isConfigured }
             }
         },
         profileProvider = {
@@ -110,7 +108,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     // ---- Mac ------------------------------------------------------------------------------
 
-    /** Checks whether the Mac answers (called when Home, Talk or the Caregiver tab opens). */
+    /** Checks whether the Mac answers. Screens call this every 20 seconds, and when the app comes back to the front. */
     fun checkMac() {
         if (prefs.engine != AiEngine.MAC || !mac.isConfigured) return
         viewModelScope.launch {
@@ -136,6 +134,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     val aiReady: Boolean get() = coach.isAvailable
+
+    /** Where the coach is running right now, for the badge on Home, Talk and Caregiver. */
+    enum class CoachWhere { MAC, MAC_CHECKING, PHONE, PHONE_BECAUSE_MAC_AWAY, OFF }
+
+    val coachWhere: CoachWhere
+        get() = when (prefs.engine) {
+            AiEngine.LOCAL -> if (localModel.isDownloaded) CoachWhere.PHONE else CoachWhere.OFF
+            AiEngine.MAC -> when {
+                !mac.isConfigured -> if (phoneFallback() != null) CoachWhere.PHONE_BECAUSE_MAC_AWAY else CoachWhere.OFF
+                macReachable == true -> CoachWhere.MAC
+                macReachable == null -> CoachWhere.MAC_CHECKING
+                phoneFallback() != null -> CoachWhere.PHONE_BECAUSE_MAC_AWAY
+                else -> CoachWhere.OFF
+            }
+        }
 
     // ---- On-phone model ------------------------------------------------------------------
 

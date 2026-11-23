@@ -44,14 +44,10 @@ class Prefs(context: Context) {
         get() = str("mac_model", com.simplespeak.app.ai.OllamaBackend.DEFAULT_MODEL)
         set(v) = put("mac_model", v.trim())
 
-    /** When the Mac can't be reached, use Claude instead (needs a Claude key). */
-    var fallbackToClaude: Boolean
-        get() = sp.getBoolean("fallback_claude", true)
-        set(v) = putBool("fallback_claude", v)
-
-    var apiKey: String
-        get() = str("api_key")
-        set(v) = put("api_key", v.trim())
+    /** When the Mac can't be reached, use the phone's model instead (if it is downloaded). */
+    var phoneWhenMacAway: Boolean
+        get() = sp.getBoolean("phone_when_mac_away", true)
+        set(v) = putBool("phone_when_mac_away", v)
 
     /** "auto", "gpu" or "cpu". Auto tries the GPU first and remembers if it fails. */
     var modelBackend: String

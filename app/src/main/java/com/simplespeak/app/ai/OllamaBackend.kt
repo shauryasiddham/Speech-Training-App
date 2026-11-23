@@ -173,8 +173,8 @@ class OllamaBackend(
 }
 
 /**
- * Uses the Mac when it can be reached, and Claude when it can't (if a Claude key is set).
- * [onFallback] lets the app show that it is using Claude for now.
+ * Uses the Mac when it can be reached, and the phone's own model when it can't (if downloaded).
+ * [onReachable] tells the app which one is answering, so it can show it.
  */
 class FallbackBackend(
     private val primary: OllamaBackend,

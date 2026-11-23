@@ -104,7 +104,7 @@ class ProgressStore(private val context: Context) {
         runCatching { Photo(o.getString("id"), o.getString("path"), o.optString("caption")) }.getOrNull()
     }.filter { File(it.path).exists() }
 
-    /** Copies a picked image into app storage, scaled down so it is quick to send to Claude. */
+    /** Copies a picked image into app storage, scaled down so it is quick for the coach to read. */
     @Synchronized
     fun importPhoto(uri: Uri, caption: String): Photo? {
         val bitmap = decodeScaled(uri, 1024) ?: return null

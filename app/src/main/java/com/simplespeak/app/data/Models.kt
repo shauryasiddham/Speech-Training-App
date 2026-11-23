@@ -25,9 +25,8 @@ enum class AgeGroup(val label: String) {
 }
 
 enum class AiEngine(val label: String, val description: String) {
-    MAC("On my Mac", "Fast, free and private. Runs on a Mac with Ollama on the same Wi-Fi."),
-    LOCAL("On this phone", "Free and private, but slower. Uses the Gemma model downloaded to the phone."),
-    CLAUDE("Claude (online)", "Needs internet and a Claude API key. Small cost per answer."),
+    MAC("Mac", "Fast. Runs on the Mac with Ollama, over the home Wi-Fi."),
+    LOCAL("Phone", "Slower, but works anywhere. Runs on this phone."),
 }
 
 /** Grammar areas the coach can tag. Keys are stored; labels are shown. */

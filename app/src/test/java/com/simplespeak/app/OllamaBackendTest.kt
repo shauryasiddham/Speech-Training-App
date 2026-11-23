@@ -105,7 +105,7 @@ class OllamaBackendTest {
     @Test fun fallsBackWhenTheMacIsOff() = runBlocking {
         val off = backend("http://127.0.0.1:1")
         var reachable: Boolean? = null
-        val claudeStandIn = object : LlmBackend {
+        val phoneStandIn = object : LlmBackend {
             override val name = "fallback"
             override suspend fun json(system: String, prompt: String, schema: Map<String, Any>, image: File?, maxTokens: Int, background: Boolean) =
                 JSONObject("""{"sentence":"From the fallback."}""")
@@ -114,7 +114,7 @@ class OllamaBackendTest {
                 override fun close() {}
             }
         }
-        val fb = FallbackBackend(off, { claudeStandIn }) { reachable = it }
+        val fb = FallbackBackend(off, { phoneStandIn }) { reachable = it }
         assertEquals("From the fallback.", fb.json("s", "p", Coach.SENTENCE_SCHEMA).getString("sentence"))
         assertEquals(false, reachable)
         val noFallback = FallbackBackend(off, { null }) { }

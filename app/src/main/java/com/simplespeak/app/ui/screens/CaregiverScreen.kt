@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
@@ -24,8 +23,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Visibility
-import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -35,7 +32,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -53,9 +52,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.simplespeak.app.ai.CoachException
 import com.simplespeak.app.ai.LocalModel
@@ -68,10 +64,12 @@ import com.simplespeak.app.data.Stats
 import com.simplespeak.app.data.Stats.day
 import com.simplespeak.app.ui.AppViewModel
 import com.simplespeak.app.ui.BigButton
-import com.simplespeak.app.ui.GradientButton
 import com.simplespeak.app.ui.SectionLabel
 import com.simplespeak.app.ui.SoftCard
 import com.simplespeak.app.ui.TrendRow
+import com.simplespeak.app.ui.CoachBadge
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -115,103 +113,37 @@ private fun pct(part: Int, whole: Int) = if (whole == 0) "–" else "${(100.0 * 
 
 @Composable
 private fun CoachSection(vm: AppViewModel) {
-    val model = vm.localModel
-    val st = model.status
     var engine by remember { mutableStateOf(vm.prefs.engine) }
-    var wifiOnly by remember { mutableStateOf(true) }
     var message by remember { mutableStateOf<String?>(null) }
-    var testing by remember { mutableStateOf(false) }
-    var backend by remember { mutableStateOf(vm.prefs.modelBackend) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
 
     SoftCard {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Speaking coach", style = MaterialTheme.typography.titleLarge)
-            AiEngine.entries.forEach { e ->
-                Row(
-                    Modifier.fillMaxWidth().selectable(engine == e, role = Role.RadioButton) { engine = e; vm.prefs.engine = e; vm.refresh() },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(engine == e, null)
-                    Spacer(Modifier.width(8.dp))
-                    Column {
-                        Text(e.label, style = MaterialTheme.typography.titleSmall)
-                        Text(e.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Speaking coach", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
+                CoachBadge(vm)
             }
-
-            if (engine == AiEngine.MAC) {
-                HorizontalDivider()
-                MacSettings(vm) { message = it }
-            } else if (engine == AiEngine.LOCAL) {
-                HorizontalDivider()
-                Text("Model: Gemma 4 E2B by Google (2.6 GB). Runs fully on the phone, works offline once downloaded.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                when (st) {
-                    is LocalModel.Status.Missing, is LocalModel.Status.Error -> {
-                        if (st is LocalModel.Status.Error) Text(st.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            Text("Where should the coach run?", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                AiEngine.entries.forEachIndexed { i, e ->
+                    SegmentedButton(
+                        selected = engine == e,
+                        onClick = { engine = e; vm.prefs.engine = e; message = null; vm.refresh(); vm.checkMac() },
+                        shape = SegmentedButtonDefaults.itemShape(i, AiEngine.entries.size),
+                        icon = {},
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Download on Wi-Fi only", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            Switch(wifiOnly, { wifiOnly = it })
-                        }
-                        GradientButton("Download the coach", onClick = { message = vm.downloadModel(wifiOnly) }, modifier = Modifier.fillMaxWidth())
-                    }
-                    is LocalModel.Status.Downloading -> {
-                        LinearProgressIndicator(progress = { st.fraction }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)))
-                        Text("${(st.fraction * 100).roundToInt()}% · ${st.note}", style = MaterialTheme.typography.bodyMedium)
-                        Text("You can leave the app; the download continues in the background.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton(onClick = { model.cancelDownload(); vm.refresh() }) { Text("Cancel download") }
-                    }
-                    else -> {
-                        Text(
-                            when (st) {
-                                is LocalModel.Status.Ready -> "Ready · running on the ${st.backend}"
-                                LocalModel.Status.Loading -> "Starting up…"
-                                else -> "Downloaded · starts when first used"
-                            },
-                            style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
-                        )
-                        model.lastSpeed?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        SectionLabel("Processor")
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            listOf("auto" to "Automatic", "gpu" to "GPU", "cpu" to "CPU").forEach { (k, label) ->
-                                FilterChip(backend == k, onClick = {
-                                    backend = k; vm.prefs.modelBackend = k; vm.prefs.gpuFailed = false
-                                    scope.launch { model.unload() }
-                                }, label = { Text(label) })
-                            }
-                        }
-                        Text("Automatic tries the faster GPU first and switches to the CPU if this phone doesn't support it.",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            BigButton("Test the coach", tonal = true, enabled = !testing, onClick = {
-                                testing = true; message = "Testing… the first start can take up to a minute."
-                                scope.launch {
-                                    message = try { vm.coach.testConnection(); "It works. ${model.lastSpeed ?: ""}" } catch (e: CoachException) { e.message }
-                                    testing = false
-                                }
-                            })
-                            TextButton(onClick = { confirmDelete = true }) { Text("Delete") }
+                            Icon(if (e == AiEngine.MAC) Icons.Rounded.Computer else Icons.Rounded.PhoneAndroid, null, Modifier.size(20.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(e.label, style = MaterialTheme.typography.titleSmall)
                         }
                     }
                 }
-            } else {
-                ClaudeKey(vm) { message = it }
             }
+            Text(engine.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider()
+            if (engine == AiEngine.MAC) MacSettings(vm) { message = it } else PhoneModelSettings(vm) { message = it }
             message?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
-    }
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            title = { Text("Delete the coach?") },
-            text = { Text("This frees 2.6 GB. Conversations and smart feedback stop working until it is downloaded again. Progress is kept.") },
-            confirmButton = { TextButton(onClick = { confirmDelete = false; model.deleteModel(); vm.refresh() }) { Text("Delete") } },
-            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
-        )
     }
 }
 
@@ -222,27 +154,18 @@ private fun MacSettings(vm: AppViewModel, onMessage: (String?) -> Unit) {
     var model by remember { mutableStateOf(vm.prefs.macModel) }
     var models by remember { mutableStateOf<List<String>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
-    var fallback by remember { mutableStateOf(vm.prefs.fallbackToClaude) }
+    var usePhone by remember { mutableStateOf(vm.prefs.phoneWhenMacAway) }
     val scope = rememberCoroutineScope()
-    val reachable = vm.macReachable
 
     fun loadModels() = scope.launch {
         models = vm.mac.installedModels()
         if (models.isNotEmpty() && model !in models) { model = models.first(); vm.prefs.macModel = model }
     }
-    androidx.compose.runtime.LaunchedEffect(Unit) { vm.checkMac(); if (vm.mac.isConfigured) loadModels() }
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        if (vm.mac.isConfigured) loadModels()
+        while (true) { vm.checkMac(); kotlinx.coroutines.delay(20_000) }
+    }
 
-    Text(
-        when (reachable) {
-            true -> "● Connected to the Mac"
-            false -> "● Can't reach the Mac" + if (vm.prefs.fallbackToClaude && vm.prefs.apiKey.isNotBlank()) " · using Claude for now" else ""
-            null -> if (url.isBlank()) "Not set up yet" else "Checking…"
-        },
-        style = MaterialTheme.typography.titleSmall,
-        color = when (reachable) { true -> com.simplespeak.app.ui.LocalExtraColors.current.success; false -> MaterialTheme.colorScheme.error; null -> MaterialTheme.colorScheme.onSurfaceVariant },
-    )
-    Text("Set up the Mac first with the guide in the project (mac-setup/README.md). It prints the address to type here.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     OutlinedTextField(
         url, { url = it }, label = { Text("Mac address") }, placeholder = { Text("e.g. 192.168.1.20") }, singleLine = true,
         shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
@@ -252,14 +175,14 @@ private fun MacSettings(vm: AppViewModel, onMessage: (String?) -> Unit) {
             busy = true; onMessage("Looking for the Mac on this Wi-Fi…")
             scope.launch {
                 val found = vm.mac.findOnNetwork()
-                if (found != null) { url = found; vm.prefs.macUrl = found; vm.refresh(); vm.checkMac(); loadModels(); onMessage("Found the Mac at $found.") }
-                else onMessage("No Mac found. Check that Ollama is open on the Mac, that it allows network connections, and that both are on the same Wi-Fi.")
+                if (found != null) { url = found; vm.prefs.macUrl = found; vm.refresh(); vm.checkMac(); loadModels(); onMessage("Found the Mac.") }
+                else onMessage("No Mac found. Check that Ollama is running on the Mac and both are on the same Wi-Fi.")
                 busy = false
             }
         })
         BigButton("Save & test", tonal = true, enabled = !busy && url.isNotBlank(), onClick = {
             vm.prefs.macUrl = com.simplespeak.app.ai.OllamaBackend.normalizeUrl(url); url = vm.prefs.macUrl; vm.refresh()
-            busy = true; onMessage("Testing… the first answer can take a few seconds while the Mac loads the model.")
+            busy = true; onMessage("Testing…")
             scope.launch {
                 loadModels()
                 onMessage(
@@ -270,52 +193,93 @@ private fun MacSettings(vm: AppViewModel, onMessage: (String?) -> Unit) {
             }
         })
     }
-    if (models.isNotEmpty()) {
+    if (models.size > 1) {
         SectionLabel("Model on the Mac")
         androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             models.forEach { m -> FilterChip(model == m, { model = m; vm.prefs.macModel = m }, label = { Text(m) }) }
         }
     }
-    SwitchRow2("Use Claude when the Mac is off", "Needs a Claude key below. Otherwise only the built-in exercises work while the Mac is away.", fallback) {
-        fallback = it; vm.prefs.fallbackToClaude = it
-    }
-    if (fallback) ClaudeKey(vm, onMessage)
-}
+    Text("To stop the coach on the Mac: click the llama in the Mac's menu bar → Quit Ollama.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 
-@Composable
-private fun SwitchRow2(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    HorizontalDivider()
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Use the phone when the Mac is off", style = MaterialTheme.typography.bodyLarge)
+            Text("Slower, but the coach keeps working. Needs the phone model below.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Switch(checked, onChange)
+        Switch(usePhone, { usePhone = it; vm.prefs.phoneWhenMacAway = it; vm.refresh() })
     }
+    if (usePhone) PhoneModelSettings(vm, compact = true, onMessage = onMessage)
 }
 
+/** Download, test and manage the model that runs on the phone itself. */
 @Composable
-private fun ClaudeKey(vm: AppViewModel, onMessage: (String?) -> Unit) {
-    var key by remember { mutableStateOf(vm.prefs.apiKey) }
-    var show by remember { mutableStateOf(false) }
+private fun PhoneModelSettings(vm: AppViewModel, compact: Boolean = false, onMessage: (String?) -> Unit) {
+    val model = vm.localModel
+    val st = model.status
+    var wifiOnly by remember { mutableStateOf(true) }
     var testing by remember { mutableStateOf(false) }
+    var backend by remember { mutableStateOf(vm.prefs.modelBackend) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    Text("Paste an API key from console.anthropic.com. Answers (and photos used in picture practice) are sent to Anthropic, with a small cost per answer.",
-        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    OutlinedTextField(
-        key, { key = it }, label = { Text("Claude API key") }, singleLine = true, shape = RoundedCornerShape(16.dp),
-        visualTransformation = if (show) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = { IconButton(onClick = { show = !show }) { Icon(if (show) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility, if (show) "Hide key" else "Show key") } },
-        modifier = Modifier.fillMaxWidth(),
-    )
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        BigButton("Save", tonal = true, onClick = { vm.prefs.apiKey = key; vm.refresh(); onMessage(if (key.isBlank()) "Key removed." else "Saved.") })
-        BigButton("Test", tonal = true, enabled = !testing && key.isNotBlank(), onClick = {
-            vm.prefs.apiKey = key; vm.refresh(); testing = true; onMessage("Testing…")
-            scope.launch {
-                onMessage(try { vm.coach.testConnection(); "It works." } catch (e: CoachException) { e.message })
-                testing = false
+
+    when (st) {
+        is LocalModel.Status.Missing, is LocalModel.Status.Error -> {
+            Text("Phone model: not downloaded (2.6 GB).", style = MaterialTheme.typography.titleSmall)
+            if (st is LocalModel.Status.Error) Text(st.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Download on Wi-Fi only", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Switch(wifiOnly, { wifiOnly = it })
             }
-        })
+            BigButton("Download phone model", tonal = compact, onClick = { onMessage(vm.downloadModel(wifiOnly)) }, modifier = Modifier.fillMaxWidth())
+        }
+        is LocalModel.Status.Downloading -> {
+            Text("Phone model: downloading", style = MaterialTheme.typography.titleSmall)
+            LinearProgressIndicator(progress = { st.fraction }, modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)))
+            Text("${(st.fraction * 100).roundToInt()}% · ${st.note}", style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = { model.cancelDownload(); vm.refresh() }) { Text("Cancel download") }
+        }
+        else -> {
+            Text(
+                when (st) {
+                    is LocalModel.Status.Ready -> "Phone model: ready (${st.backend})"
+                    LocalModel.Status.Loading -> "Phone model: starting…"
+                    else -> "Phone model: downloaded"
+                },
+                style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+            )
+            if (!compact) {
+                model.lastSpeed?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                SectionLabel("Processor")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("auto" to "Automatic", "gpu" to "GPU", "cpu" to "CPU").forEach { (k, label) ->
+                        FilterChip(backend == k, onClick = {
+                            backend = k; vm.prefs.modelBackend = k; vm.prefs.gpuFailed = false
+                            scope.launch { model.unload() }
+                        }, label = { Text(label) })
+                    }
+                }
+                BigButton("Test the phone model", tonal = true, enabled = !testing, onClick = {
+                    testing = true; onMessage("Testing… the first start can take up to a minute.")
+                    scope.launch {
+                        onMessage(try { vm.coach.testConnection(); "It works. ${model.lastSpeed ?: ""}" } catch (e: CoachException) { e.message })
+                        testing = false
+                    }
+                })
+            }
+            TextButton(onClick = { confirmDelete = true }) { Text("Delete phone model (frees 2.6 GB)") }
+        }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Delete the phone model?") },
+            text = { Text("This frees 2.6 GB. The coach will only work while the Mac is on. Progress is kept.") },
+            confirmButton = { TextButton(onClick = { confirmDelete = false; model.deleteModel(); vm.refresh() }) { Text("Delete") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
+        )
     }
 }
 

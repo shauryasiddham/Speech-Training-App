@@ -5,7 +5,7 @@ import java.io.File
 
 open class CoachException(message: String) : Exception(message)
 
-/** A language model that answers in JSON. Implemented by the on-phone model and by Claude. */
+/** A language model that answers in JSON. Implemented by the Mac (Ollama) and the on-phone model. */
 interface LlmBackend {
     val name: String
 

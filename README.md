@@ -1,6 +1,6 @@
 # SimpleSpeak
 
-An Android app that helps autistic people of all ages turn their ideas into clear, grammatical spoken sentences. It is built with Kotlin and Jetpack Compose. The feedback comes from a coach that runs on the phone (Gemma 4 through LiteRT-LM), or optionally from Claude.
+An Android app that helps autistic people of all ages turn their ideas into clear, grammatical spoken sentences. It is built with Kotlin and Jetpack Compose. The feedback comes from a speaking coach that runs on your Mac (Ollama) or on the phone itself (Gemma 4 through LiteRT-LM). Nothing is sent to the internet.
 
 ## What's in version 2
 
@@ -9,12 +9,11 @@ An Android app that helps autistic people of all ages turn their ideas into clea
 - Before the microphone opens there's a short think time (the caregiver sets 0–15 seconds), then it opens by itself.
 - Typing appears only if the microphone fails twice in a row.
 
-**A speaking coach on your Mac (new in 2.1).** The phone uses a model running on a Mac on the same Wi-Fi through Ollama, which is much faster than the phone. See [`mac-setup/README.md`](mac-setup/README.md). When the Mac is away, Claude takes over if a key is set.
+**A speaking coach on your Mac (new in 2.1).** The phone uses a model running on a Mac on the same Wi-Fi through Ollama, which is much faster than the phone. See [`mac-setup/README.md`](mac-setup/README.md). When the Mac is off, the phone's own model takes over (if downloaded). A badge always shows where the coach is running.
 
 **Or a speaking coach that runs on the phone.**
 - It uses Google's Gemma 4 E2B model through LiteRT-LM. It's free, private and works offline.
 - The model is a one-time 2.6 GB download from the Caregiver tab.
-- Claude (online, with an API key) is available as an optional alternative.
 
 | Exercise | What he does |
 |---|---|

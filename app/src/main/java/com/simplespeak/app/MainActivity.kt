@@ -89,6 +89,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        vm.checkMac() // the Mac may have been switched off or on while the app was in the background
+    }
+
     override fun onStop() {
         super.onStop()
         vm.speech.stop()

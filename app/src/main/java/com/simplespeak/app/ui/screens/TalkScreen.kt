@@ -80,7 +80,7 @@ private data class ChatMessage(
 @Composable
 fun TalkScreen(vm: AppViewModel) {
     var topic by remember { mutableStateOf<Topic?>(null) }
-    LaunchedEffect(Unit) { vm.checkMac() }
+    LaunchedEffect(Unit) { while (true) { vm.checkMac(); kotlinx.coroutines.delay(20_000) } }
     if (!vm.aiReady) {
         Page {
             Text("Talk with your coach", style = MaterialTheme.typography.headlineMedium)
@@ -103,7 +103,7 @@ private fun TopicPicker(vm: AppViewModel, onPick: (Topic) -> Unit) {
             "Have a real conversation. Take a moment to plan, then speak. After each answer you'll see a clearer way to say it.",
             style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        CoachStatusLine(vm)
+        com.simplespeak.app.ui.CoachBadge(vm)
         SectionLabel("Choose a topic")
         topics(vm.prefs.interests).forEach { tp ->
             SoftCard(onClick = { onPick(tp) }) {
@@ -170,6 +170,7 @@ private fun ChatView(vm: AppViewModel, topic: Topic, onEnd: () -> Unit) {
                 Text("Your coach", style = MaterialTheme.typography.titleSmall)
                 Text(topic.title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            com.simplespeak.app.ui.CoachBadge(vm)
             TextButton(onClick = { if (messages.count { !it.fromCoach } > 0) ended = true else onEnd() }) { Text("End") }
         }
         HorizontalDivider()

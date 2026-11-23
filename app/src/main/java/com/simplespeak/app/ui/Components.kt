@@ -34,6 +34,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Computer
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Keyboard
 import androidx.compose.material.icons.rounded.Lightbulb
@@ -702,5 +705,29 @@ fun Loading(text: String) {
         CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 3.dp)
         Spacer(Modifier.width(12.dp))
         Text(text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** A small, always-visible pill showing where the coach is running right now: the Mac or this phone. */
+@Composable
+fun CoachBadge(vm: AppViewModel, modifier: Modifier = Modifier) {
+    @Suppress("UNUSED_VARIABLE") val tick = vm.dataVersion // refresh when settings change
+    val extra = LocalExtraColors.current
+    val where = vm.coachWhere
+    val (icon, text, dot) = when (where) {
+        AppViewModel.CoachWhere.MAC -> Triple(Icons.Rounded.Computer, "Coach: Mac", extra.success)
+        AppViewModel.CoachWhere.MAC_CHECKING -> Triple(Icons.Rounded.Computer, "Coach: Mac…", MaterialTheme.colorScheme.outline)
+        AppViewModel.CoachWhere.PHONE -> Triple(Icons.Rounded.PhoneAndroid, "Coach: Phone", extra.success)
+        AppViewModel.CoachWhere.PHONE_BECAUSE_MAC_AWAY -> Triple(Icons.Rounded.PhoneAndroid, "Coach: Phone · Mac off", extra.flame)
+        AppViewModel.CoachWhere.OFF -> Triple(Icons.Rounded.CloudOff, "Coach: off", MaterialTheme.colorScheme.error)
+    }
+    Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp, modifier = modifier) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(9.dp).clip(CircleShape).background(dot))
+            Spacer(Modifier.width(7.dp))
+            Icon(icon, null, Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(5.dp))
+            Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
+        }
     }
 }

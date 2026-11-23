@@ -22,7 +22,7 @@ data class JoinTask(val parts: List<String>, val joined: String)
 data class SequenceTask(val title: String, val steps: List<Pair<String, String>>)
 
 /**
- * All the coaching logic and prompts. Works with any [LlmBackend] (the on-phone model or Claude).
+ * All the coaching logic and prompts. Works with any [LlmBackend] (the Mac or the on-phone model).
  * Prompts are kept short and literal because the on-phone model is small; tested on Gemma 4 E2B.
  */
 class Coach(
