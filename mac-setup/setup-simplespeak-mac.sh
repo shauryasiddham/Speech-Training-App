@@ -68,7 +68,7 @@ START=$(date +%s)
 curl -s http://127.0.0.1:11434/api/chat -d "{\"model\":\"$MODEL\",\"stream\":false,\"think\":false,\"keep_alive\":\"10m\",
   \"format\":{\"type\":\"object\",\"properties\":{\"improved\":{\"type\":\"string\"}},\"required\":[\"improved\"]},
   \"messages\":[{\"role\":\"user\",\"content\":\"Fix the grammar: yesterday I go to the shop. Reply in JSON.\"}]}" \
-  | python3 -c 'import json,sys; print("  Answer:", json.loads(json.load(sys.stdin)["message"]["content"])["improved"])'
+  | grep -o '"content":"[^}]*}' | head -1 | sed 's/^/  Answer: /'
 echo "  Took $(( $(date +%s) - START )) seconds (the first answer includes loading the model)."
 
 # 6. Show the address to type into the app.
