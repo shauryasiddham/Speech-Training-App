@@ -11,7 +11,9 @@ import com.simplespeak.app.ai.ClaudeBackend
 import com.simplespeak.app.ai.Coach
 import com.simplespeak.app.ai.JoinTask
 import com.simplespeak.app.ai.LearnerProfile
+import com.simplespeak.app.ai.FallbackBackend
 import com.simplespeak.app.ai.LocalModel
+import com.simplespeak.app.ai.OllamaBackend
 import com.simplespeak.app.ai.SequenceTask
 import com.simplespeak.app.data.AiEngine
 import com.simplespeak.app.data.Attempt
@@ -56,10 +58,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val recorder = VoiceRecorder(app)
     val localModel = LocalModel(app, prefs)
     val claude = ClaudeBackend(apiKeyProvider = { prefs.apiKey })
+    val mac = OllamaBackend(urlProvider = { prefs.macUrl }, modelProvider = { prefs.macModel })
+
+    /** null = not checked yet, true = the Mac answered, false = it couldn't be reached. */
+    var macReachable by mutableStateOf<Boolean?>(null)
+        private set
+
+    private val claudeFallback: () -> ClaudeBackend? = { claude.takeIf { prefs.fallbackToClaude && it.isConfigured } }
+    private val macWithFallback = FallbackBackend(mac, claudeFallback) { ok ->
+        if (macReachable != ok) macReachable = ok
+        if (!ok) rediscoverMac()
+    }
 
     val coach = Coach(
         backendProvider = {
             when (prefs.engine) {
+                AiEngine.MAC -> if (mac.isConfigured) macWithFallback else claudeFallback()
                 AiEngine.LOCAL -> localModel.takeIf { it.isDownloaded }
                 AiEngine.CLAUDE -> claude.takeIf { it.isConfigured }
             }
@@ -93,6 +107,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun refresh() { dataVersion++ }
+
+    // ---- Mac ------------------------------------------------------------------------------
+
+    /** Checks whether the Mac answers (called when Home, Talk or the Caregiver tab opens). */
+    fun checkMac() {
+        if (prefs.engine != AiEngine.MAC || !mac.isConfigured) return
+        viewModelScope.launch {
+            val ok = mac.ping()
+            macReachable = ok
+            if (!ok) rediscoverMac()
+        }
+    }
+
+    private var rediscovering = false
+
+    /** The Mac's address can change when the router restarts; look for it again on the Wi-Fi. */
+    private fun rediscoverMac() {
+        if (rediscovering) return
+        rediscovering = true
+        viewModelScope.launch {
+            mac.findOnNetwork()?.let { url ->
+                if (url != OllamaBackend.normalizeUrl(prefs.macUrl)) { prefs.macUrl = url; refresh() }
+                macReachable = mac.ping()
+            }
+            rediscovering = false
+        }
+    }
 
     val aiReady: Boolean get() = coach.isAvailable
 

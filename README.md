@@ -9,7 +9,9 @@ An Android app that helps autistic people of all ages turn their ideas into clea
 - Before the microphone opens there's a short think time (the caregiver sets 0–15 seconds), then it opens by itself.
 - Typing appears only if the microphone fails twice in a row.
 
-**A speaking coach that runs on the phone.**
+**A speaking coach on your Mac (new in 2.1).** The phone uses a model running on a Mac on the same Wi-Fi through Ollama, which is much faster than the phone. See [`mac-setup/README.md`](mac-setup/README.md). When the Mac is away, Claude takes over if a key is set.
+
+**Or a speaking coach that runs on the phone.**
 - It uses Google's Gemma 4 E2B model through LiteRT-LM. It's free, private and works offline.
 - The model is a one-time 2.6 GB download from the Caregiver tab.
 - Claude (online, with an API key) is available as an optional alternative.
@@ -53,10 +55,10 @@ Pronunciation feedback is not included yet. Gemma 4 can take audio input, so it 
 
 ## Install on a phone
 
-1. Copy `release/SimpleSpeak-v2.0.apk` to the Android phone (for example through Google Drive, email or a USB cable). The phone needs Android 8.0 or newer and a 64-bit ARM processor. Version 2 installs over version 1 and keeps his progress.
+1. Copy `release/SimpleSpeak-v2.1.apk` to the Android phone (for example through Google Drive, email or a USB cable). The phone needs Android 8.0 or newer and a 64-bit ARM processor. Each new version installs over the old one and keeps his progress.
 2. Open the file on the phone. If Android asks, allow your browser or Files app to "install unknown apps".
 3. Open **SimpleSpeak**, enter the learner's name and age group, and allow the microphone when asked.
-4. Go to **Caregiver → Speaking coach** and tap **Download the coach** (2.6 GB, best on Wi-Fi). When it finishes, tap **Test the coach**. The first start can take up to a minute.
+4. Set up the Mac with [`mac-setup/README.md`](mac-setup/README.md). Then on the phone go to **Caregiver → Speaking coach → On my Mac**, tap **Find my Mac** and **Save & test**.
 
 ## Build from source
 

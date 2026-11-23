@@ -25,7 +25,8 @@ enum class AgeGroup(val label: String) {
 }
 
 enum class AiEngine(val label: String, val description: String) {
-    LOCAL("On this phone", "Free and private. Uses the Gemma model downloaded to the phone."),
+    MAC("On my Mac", "Fast, free and private. Runs on a Mac with Ollama on the same Wi-Fi."),
+    LOCAL("On this phone", "Free and private, but slower. Uses the Gemma model downloaded to the phone."),
     CLAUDE("Claude (online)", "Needs internet and a Claude API key. Small cost per answer."),
 }
 

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Ollama on the Mac speaks plain HTTP on the home network, and its address is a local IP
+  (which can't be listed here in advance), so plain HTTP is allowed. Everything on the
+  internet (Claude, the model download) still uses HTTPS.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

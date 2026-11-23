@@ -32,8 +32,22 @@ class Prefs(context: Context) {
     // ---- AI ----------------------------------------------------------------------
 
     var engine: AiEngine
-        get() = runCatching { AiEngine.valueOf(str("engine", "LOCAL")) }.getOrDefault(AiEngine.LOCAL)
+        get() = runCatching { AiEngine.valueOf(str("engine", "MAC")) }.getOrDefault(AiEngine.MAC)
         set(v) = put("engine", v.name)
+
+    /** Address of the Mac running Ollama, e.g. http://192.168.1.20:11434 */
+    var macUrl: String
+        get() = str("mac_url")
+        set(v) = put("mac_url", v.trim())
+
+    var macModel: String
+        get() = str("mac_model", com.simplespeak.app.ai.OllamaBackend.DEFAULT_MODEL)
+        set(v) = put("mac_model", v.trim())
+
+    /** When the Mac can't be reached, use Claude instead (needs a Claude key). */
+    var fallbackToClaude: Boolean
+        get() = sp.getBoolean("fallback_claude", true)
+        set(v) = putBool("fallback_claude", v)
 
     var apiKey: String
         get() = str("api_key")

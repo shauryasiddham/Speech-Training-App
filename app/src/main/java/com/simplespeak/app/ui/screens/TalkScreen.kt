@@ -80,6 +80,7 @@ private data class ChatMessage(
 @Composable
 fun TalkScreen(vm: AppViewModel) {
     var topic by remember { mutableStateOf<Topic?>(null) }
+    LaunchedEffect(Unit) { vm.checkMac() }
     if (!vm.aiReady) {
         Page {
             Text("Talk with your coach", style = MaterialTheme.typography.headlineMedium)
@@ -102,6 +103,7 @@ private fun TopicPicker(vm: AppViewModel, onPick: (Topic) -> Unit) {
             "Have a real conversation. Take a moment to plan, then speak. After each answer you'll see a clearer way to say it.",
             style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        CoachStatusLine(vm)
         SectionLabel("Choose a topic")
         topics(vm.prefs.interests).forEach { tp ->
             SoftCard(onClick = { onPick(tp) }) {

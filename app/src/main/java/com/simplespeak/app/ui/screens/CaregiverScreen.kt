@@ -142,7 +142,10 @@ private fun CoachSection(vm: AppViewModel) {
                 }
             }
 
-            if (engine == AiEngine.LOCAL) {
+            if (engine == AiEngine.MAC) {
+                HorizontalDivider()
+                MacSettings(vm) { message = it }
+            } else if (engine == AiEngine.LOCAL) {
                 HorizontalDivider()
                 Text("Model: Gemma 4 E2B by Google (2.6 GB). Runs fully on the phone, works offline once downloaded.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -209,6 +212,84 @@ private fun CoachSection(vm: AppViewModel) {
             confirmButton = { TextButton(onClick = { confirmDelete = false; model.deleteModel(); vm.refresh() }) { Text("Delete") } },
             dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Cancel") } },
         )
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun MacSettings(vm: AppViewModel, onMessage: (String?) -> Unit) {
+    var url by remember { mutableStateOf(vm.prefs.macUrl) }
+    var model by remember { mutableStateOf(vm.prefs.macModel) }
+    var models by remember { mutableStateOf<List<String>>(emptyList()) }
+    var busy by remember { mutableStateOf(false) }
+    var fallback by remember { mutableStateOf(vm.prefs.fallbackToClaude) }
+    val scope = rememberCoroutineScope()
+    val reachable = vm.macReachable
+
+    fun loadModels() = scope.launch {
+        models = vm.mac.installedModels()
+        if (models.isNotEmpty() && model !in models) { model = models.first(); vm.prefs.macModel = model }
+    }
+    androidx.compose.runtime.LaunchedEffect(Unit) { vm.checkMac(); if (vm.mac.isConfigured) loadModels() }
+
+    Text(
+        when (reachable) {
+            true -> "● Connected to the Mac"
+            false -> "● Can't reach the Mac" + if (vm.prefs.fallbackToClaude && vm.prefs.apiKey.isNotBlank()) " · using Claude for now" else ""
+            null -> if (url.isBlank()) "Not set up yet" else "Checking…"
+        },
+        style = MaterialTheme.typography.titleSmall,
+        color = when (reachable) { true -> com.simplespeak.app.ui.LocalExtraColors.current.success; false -> MaterialTheme.colorScheme.error; null -> MaterialTheme.colorScheme.onSurfaceVariant },
+    )
+    Text("Set up the Mac first with the guide in the project (mac-setup/README.md). It prints the address to type here.",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    OutlinedTextField(
+        url, { url = it }, label = { Text("Mac address") }, placeholder = { Text("e.g. 192.168.1.20") }, singleLine = true,
+        shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth(),
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        BigButton("Find my Mac", tonal = true, enabled = !busy, onClick = {
+            busy = true; onMessage("Looking for the Mac on this Wi-Fi…")
+            scope.launch {
+                val found = vm.mac.findOnNetwork()
+                if (found != null) { url = found; vm.prefs.macUrl = found; vm.refresh(); vm.checkMac(); loadModels(); onMessage("Found the Mac at $found.") }
+                else onMessage("No Mac found. Check that Ollama is open on the Mac, that it allows network connections, and that both are on the same Wi-Fi.")
+                busy = false
+            }
+        })
+        BigButton("Save & test", tonal = true, enabled = !busy && url.isNotBlank(), onClick = {
+            vm.prefs.macUrl = com.simplespeak.app.ai.OllamaBackend.normalizeUrl(url); url = vm.prefs.macUrl; vm.refresh()
+            busy = true; onMessage("Testing… the first answer can take a few seconds while the Mac loads the model.")
+            scope.launch {
+                loadModels()
+                onMessage(
+                    if (!vm.mac.ping()) "Can't reach the Mac at that address."
+                    else try { vm.coach.testConnection(); "It works. The coach on the Mac is ready." } catch (e: CoachException) { e.message }
+                )
+                vm.checkMac(); busy = false
+            }
+        })
+    }
+    if (models.isNotEmpty()) {
+        SectionLabel("Model on the Mac")
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            models.forEach { m -> FilterChip(model == m, { model = m; vm.prefs.macModel = m }, label = { Text(m) }) }
+        }
+    }
+    SwitchRow2("Use Claude when the Mac is off", "Needs a Claude key below. Otherwise only the built-in exercises work while the Mac is away.", fallback) {
+        fallback = it; vm.prefs.fallbackToClaude = it
+    }
+    if (fallback) ClaudeKey(vm, onMessage)
+}
+
+@Composable
+private fun SwitchRow2(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked, onChange)
     }
 }
 

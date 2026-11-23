@@ -146,6 +146,7 @@ fun HomeScreen(vm: AppViewModel) {
     val extra = LocalExtraColors.current
     val greeting = when (LocalTime.now().hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
     val plan = remember(version) { vm.sessionPlan() }
+    LaunchedEffect(Unit) { vm.checkMac() }
 
     Page {
         Text("$greeting${if (name.isNotBlank()) ", $name" else ""}", style = MaterialTheme.typography.headlineMedium)
@@ -175,7 +176,7 @@ fun HomeScreen(vm: AppViewModel) {
             }
         }
 
-        if (!vm.aiReady) CoachSetupBanner(vm)
+        if (!vm.aiReady) CoachSetupBanner(vm) else CoachStatusLine(vm)
 
         SoftCard(onClick = { vm.navigate(Screen.Talk) }) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,8 +231,33 @@ private fun SkillTile(vm: AppViewModel, t: ExerciseType, modifier: Modifier) {
     }
 }
 
+/** A small line under the hero showing where the coach is running. */
+@Composable
+fun CoachStatusLine(vm: AppViewModel) {
+    if (vm.prefs.engine != com.simplespeak.app.data.AiEngine.MAC) return
+    val (text, color) = when (vm.macReachable) {
+        true -> "Coach ready on the Mac" to LocalExtraColors.current.success
+        false -> (if (vm.prefs.fallbackToClaude && vm.claude.isConfigured) "The Mac is away · using Claude for now" else "The Mac is away · coach exercises are paused") to MaterialTheme.colorScheme.onSurfaceVariant
+        null -> return
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).background(color, androidx.compose.foundation.shape.CircleShape))
+        Spacer(Modifier.width(8.dp))
+        Text(text, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 @Composable
 fun CoachSetupBanner(vm: AppViewModel) {
+    if (vm.prefs.engine == com.simplespeak.app.data.AiEngine.MAC) {
+        SoftCard(color = MaterialTheme.colorScheme.tertiaryContainer, onClick = { vm.navigate(Screen.Caregiver) }) {
+            Column {
+                Text("Connect the speaking coach", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text("A caregiver can connect it to the Mac in the Caregiver tab.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            }
+        }
+        return
+    }
     val st = vm.localModel.status
     SoftCard(color = MaterialTheme.colorScheme.tertiaryContainer, onClick = { vm.navigate(Screen.Caregiver) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {

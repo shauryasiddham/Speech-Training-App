@@ -3,7 +3,7 @@ package com.simplespeak.app.ai
 import org.json.JSONObject
 import java.io.File
 
-class CoachException(message: String) : Exception(message)
+open class CoachException(message: String) : Exception(message)
 
 /** A language model that answers in JSON. Implemented by the on-phone model and by Claude. */
 interface LlmBackend {
