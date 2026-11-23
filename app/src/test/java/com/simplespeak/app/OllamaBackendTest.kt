@@ -76,8 +76,8 @@ class OllamaBackendTest {
     }
 
     @Test fun chatStreamsTheReplyAndKeepsHistory() = runBlocking {
-        content = """{"reply":"That sounds like a fun day. What did you see first?","improved":"I went to the museum.","tip":"Use went for the past."}"""
-        val chat = coach(backend()).startChat("Your weekend")
+        content = """{"grades":{"grammar":"good","structure":"very_good","vocabulary":"good","clarity":"excellent"},"improved":"I went to the museum.","explanation":"Use went for the past.","mistakes":["verb_tense"],"reply":"That sounds like a fun day. What did you see first?","ended":false}"""
+        val chat = coach(backend()).startChat(com.simplespeak.app.data.TalkMode.Free("Your weekend", "🎉", "Hi"))
         val partials = mutableListOf<String>()
         val turn = chat.send("I go to the museum") { partials += it }
         assertEquals("That sounds like a fun day. What did you see first?", turn.reply)

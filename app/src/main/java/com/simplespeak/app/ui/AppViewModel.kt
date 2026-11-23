@@ -119,10 +119,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var rediscovering = false
+    private var lastRediscover = 0L
 
-    /** The Mac's address can change when the router restarts; look for it again on the Wi-Fi. */
+    /**
+     * The Mac's address can change when the router restarts; look for it again on the Wi-Fi.
+     * At most once every 5 minutes, so a Mac that is simply switched off isn't searched for constantly.
+     */
     private fun rediscoverMac() {
-        if (rediscovering) return
+        val now = System.currentTimeMillis()
+        if (rediscovering || now - lastRediscover < 5 * 60_000) return
+        lastRediscover = now
         rediscovering = true
         viewModelScope.launch {
             mac.findOnNetwork()?.let { url ->

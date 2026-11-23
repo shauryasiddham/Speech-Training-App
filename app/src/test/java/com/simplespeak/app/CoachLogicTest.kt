@@ -6,6 +6,9 @@ import com.simplespeak.app.ai.LearnerProfile
 import com.simplespeak.app.ai.LlmBackend
 import com.simplespeak.app.data.AgeGroup
 import com.simplespeak.app.data.ErrorInjector
+import com.simplespeak.app.data.Grade
+import com.simplespeak.app.data.TalkContent
+import com.simplespeak.app.data.TalkMode
 import com.simplespeak.app.data.TextMatch
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -59,14 +62,48 @@ class CoachLogicTest {
         assertEquals("", fb.nextLevel) // same as the answer, so not shown
     }
 
-    @Test fun chatTurnUsesReplyAndFixes() = runBlocking {
-        fake.reply = """{"reply":"That sounds like a nice trip. What did you enjoy most?","improved":"On Saturday I went to the train museum with my dad","tip":"Use \"went\", not \"go\", for the past."}"""
-        val chat = coach.startChat("Your weekend")
+    // Real Gemma 4 output from prompt testing.
+    @Test fun gradedTurnTeachesTheCorrection() = runBlocking {
+        fake.reply = """{"grades":{"grammar":"needs_work","structure":"needs_work","vocabulary":"good","clarity":"good"},"improved":"on saturday my dad and i went to the train museum","explanation":"We use the subject pronoun 'I' when we are the subject of the sentence. Also, we need the past tense 'went' because it happened on Saturday.","mistakes":["pronoun","verb_tense","word_order"],"reply":"That sounds like an interesting trip. What did you enjoy most about the train museum?","ended":false}"""
+        val chat = coach.startChat(TalkMode.Free("Your weekend", "🎉", "What did you do?"))
         var partial = ""
-        val turn = chat.send("on saturday I go to train museum with my dad") { partial = it }
+        val turn = chat.send("on saturday me and my dad go to the train museum") { partial = it }
         assertFalse(turn.correct)
-        assertEquals("That sounds like a nice trip. What did you enjoy most?", partial)
-        assertTrue(turn.tip.contains("went"))
+        assertEquals(Grade.NEEDS_WORK, turn.grades.grammar)
+        assertTrue(turn.explanation.contains("went"))
+        assertEquals(listOf("pronoun", "verb_tense", "word_order"), turn.mistakes)
+        assertTrue(partial.startsWith("That sounds"))
+        assertFalse(turn.ended)
+    }
+
+    // Real output: the model graded a correct sentence "good" and wrote a pointless explanation.
+    @Test fun unchangedAnswerCountsAsCorrectGrammar() = runBlocking {
+        fake.reply = """{"grades":{"grammar":"needs_work","structure":"needs_work","vocabulary":"good","clarity":"good"},"improved":"hello i want coffee and the sandwich","explanation":"In English we usually use 'I would like'.","mistakes":["missing_word"],"reply":"Welcome. What kind of coffee would you like?","ended":false}"""
+        val turn = coach.startChat(TalkContent.scenarios.first()).send("hello I want coffee and the sandwich") {}
+        assertTrue(turn.correct)
+        assertEquals(Grade.EXCELLENT, turn.grades.grammar)
+        assertEquals(Grade.VERY_GOOD, turn.grades.structure)
+        assertEquals("", turn.explanation)
+        assertTrue(turn.mistakes.isEmpty())
+    }
+
+    @Test fun goodbyeEndsTheConversationAndMakesAReportCard() = runBlocking {
+        fake.reply = """{"grades":{"grammar":"excellent","structure":"excellent","vocabulary":"good","clarity":"excellent"},"improved":"thank you bye","explanation":"","mistakes":[],"reply":"You are welcome. Have a good day.","ended":false}"""
+        val chat = coach.startChat(TalkContent.explainTopics.first())
+        val turn = chat.send("thank you bye") {}
+        assertTrue(turn.ended) // detected on the phone even though the model said false
+        fake.reply = """{"summary":"You explained the steps. You used good words.","strengths":["You put the steps in order."],"work_on":["Use the past tense, for example 'we ate'."],"practice_sentence":"First, you boil the water."}"""
+        val r = chat.report()
+        assertEquals("First, you boil the water.", r.practiceSentence)
+        assertEquals(1, r.workOn.size)
+        assertTrue(fake.prompts.last().contains("thank you bye"))
+    }
+
+    @Test fun gradesAverageToWords() {
+        assertEquals(Grade.VERY_GOOD, Grade.average(listOf(Grade.EXCELLENT, Grade.GOOD, Grade.VERY_GOOD, Grade.VERY_GOOD)))
+        assertEquals(Grade.NEEDS_WORK, Grade.average(listOf(Grade.NEEDS_WORK)))
+        assertTrue(TalkContent.soundsLikeGoodbye("ok I'm done now"))
+        assertFalse(TalkContent.soundsLikeGoodbye("I bought a new bike"))
     }
 
     @Test fun generatorsParseAndFilter() = runBlocking {

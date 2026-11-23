@@ -4,7 +4,11 @@ import com.simplespeak.app.data.AgeGroup
 import com.simplespeak.app.data.BetterWord
 import com.simplespeak.app.data.ContentBank
 import com.simplespeak.app.data.Feedback
+import com.simplespeak.app.data.Grade
 import com.simplespeak.app.data.MistakeTypes
+import com.simplespeak.app.data.SkillGrades
+import com.simplespeak.app.data.TalkContent
+import com.simplespeak.app.data.TalkMode
 import com.simplespeak.app.data.TextMatch
 import org.json.JSONObject
 import java.io.File
@@ -17,7 +21,26 @@ data class LearnerProfile(
     val progressNotes: String,
 )
 
-data class ChatTurn(val reply: String, val improved: String, val tip: String, val correct: Boolean)
+/** One graded turn of a Talk conversation. */
+data class ChatTurn(
+    val said: String,
+    val reply: String,
+    val improved: String,
+    val explanation: String,
+    val correct: Boolean,
+    val grades: SkillGrades,
+    val mistakes: List<String>,
+    val ended: Boolean,
+)
+
+/** The report card shown when a conversation ends. */
+data class ReportCard(
+    val grades: SkillGrades,
+    val summary: String,
+    val strengths: List<String>,
+    val workOn: List<String>,
+    val practiceSentence: String,
+)
 data class JoinTask(val parts: List<String>, val joined: String)
 data class SequenceTask(val title: String, val steps: List<Pair<String, String>>)
 
@@ -193,57 +216,141 @@ class Coach(
         return json.optString("sentence", "The coach is ready.")
     }
 
-    // ---- Conversation ----------------------------------------------------------------------
+    // ---- Conversation (graded) ---------------------------------------------------------------
 
-    inner class Chat(val topic: String) {
-        private val channel = backend().openChat(chatSystem(topic))
-        var turns = 0
-            private set
+    /** A Talk conversation. Every answer is graded and, if needed, politely corrected; the talk itself carries on naturally. */
+    inner class Chat(val mode: TalkMode) {
+        private val channel = backend().openChat(chatSystem(mode))
+        val turns = mutableListOf<ChatTurn>()
 
         suspend fun send(said: String, onPartial: (String) -> Unit): ChatTurn {
-            turns++
-            val wrapUp = turns >= MAX_CHAT_TURNS
-            val prompt = """
-                He said: "$said"
-                Reply in JSON:
-                - reply: your next turn (1 or 2 short sentences). React to what he said${if (wrapUp) ", thank him and say goodbye warmly. Do not ask a question." else " and ask ONE open follow-up question."}
-                - improved: what he said with only the grammar fixed (copy it exactly if it was correct).
-                - tip: if you fixed something, say the main fix in one short sentence, for example: Use "went", not "go", for the past. Empty string if his answer was correct.
-            """.trimIndent()
+            val lastTurn = turns.size + 1 >= MAX_CHAT_TURNS
+            val prompt = "He said: \"$said\"" + if (lastTurn) "\n(This is the last turn: in reply, thank him politely and close the conversation.)" else ""
             val json = channel.send(prompt, CHAT_SCHEMA, onPartial)
-            val improved = sentenceCase(json.optString("improved").trim()).ifBlank { said }
-            val correct = TextMatch.sameSentence(said, improved)
-            return ChatTurn(
-                reply = sentenceCase(json.optString("reply").trim()).ifBlank { "Tell me more." },
-                improved = if (correct) sentenceCase(said) else improved,
-                tip = if (correct) "" else sentenceCase(json.optString("tip").trim()),
-                correct = correct,
-            )
+            val turn = parseTurn(json, said, forceEnd = lastTurn)
+            turns += turn
+            return turn
         }
 
-        val finished: Boolean get() = turns >= MAX_CHAT_TURNS
+        /** Writes the report card from all his graded answers. */
+        suspend fun report(): ReportCard {
+            val graded = turns.filter { it.said.isNotBlank() }
+            val grades = SkillGrades(
+                Grade.average(graded.map { it.grades.grammar }),
+                Grade.average(graded.map { it.grades.structure }),
+                Grade.average(graded.map { it.grades.vocabulary }),
+                Grade.average(graded.map { it.grades.clarity }),
+            )
+            val lines = graded.mapIndexed { i, t ->
+                "${i + 1}. He said: \"${t.said}\" -> " +
+                    if (t.correct) "correct" else "Better: \"${t.improved}\" (${t.mistakes.joinToString(", ") { MistakeTypes.label(it).lowercase() }})"
+            }.joinToString("\n")
+            val p = profileProvider()
+            val prompt = """
+                Conversation: ${describe(mode)}
+                His answers, with corrections:
+                $lines
+
+                Reply in JSON:
+                - summary: two short sentences about how he did overall.
+                - strengths: up to 2 specific things he did well.
+                - work_on: up to 2 specific things to practise next, each with a short example from his answers.
+                - practice_sentence: one correct sentence from this conversation for him to say again.
+            """.trimIndent()
+            val system = "You are the speaking coach in SimpleSpeak, writing a short report card after a practice conversation with " +
+                "${p.name.ifBlank { "the learner" }}. Polite, professional, clear and encouraging. Literal language. Speak to him directly as \"you\"."
+            return try {
+                val json = backend().json(system, prompt, REPORT_SCHEMA)
+                fun list(key: String) = json.optJSONArray(key)?.let { a -> List(a.length()) { sentenceCase(a.getString(it).trim()) } }.orEmpty().filter { it.isNotBlank() }.take(2)
+                ReportCard(
+                    grades = grades,
+                    summary = sentenceCase(json.optString("summary").trim()),
+                    strengths = list("strengths"),
+                    workOn = list("work_on"),
+                    practiceSentence = sentenceCase(json.optString("practice_sentence").trim())
+                        .ifBlank { graded.firstOrNull { !it.correct }?.improved.orEmpty() },
+                )
+            } catch (e: CoachException) {
+                // Still show the grades if the summary can't be written.
+                ReportCard(grades, "You answered ${graded.size} times in this conversation.", emptyList(), emptyList(),
+                    graded.firstOrNull { !it.correct }?.improved.orEmpty())
+            }
+        }
 
         fun close() = channel.close()
     }
 
-    fun startChat(topic: String) = Chat(topic)
+    internal fun parseTurn(json: JSONObject, said: String, forceEnd: Boolean = false): ChatTurn {
+        val improved = sentenceCase(json.optString("improved").trim()).ifBlank { said }
+        // The model sometimes grades a correct sentence down; if it changed nothing, grammar was right.
+        val correct = TextMatch.sameSentence(said, improved)
+        val g = json.optJSONObject("grades")
+        var grades = SkillGrades(
+            Grade.of(g?.optString("grammar")), Grade.of(g?.optString("structure")),
+            Grade.of(g?.optString("vocabulary")), Grade.of(g?.optString("clarity")),
+        )
+        if (correct) {
+            grades = grades.copy(
+                grammar = Grade.EXCELLENT,
+                structure = if (grades.structure.points < Grade.VERY_GOOD.points) Grade.VERY_GOOD else grades.structure,
+            )
+        }
+        val mistakes = json.optJSONArray("mistakes")?.let { a -> List(a.length()) { a.getString(it) } }
+            ?.filter { it in MistakeTypes.keys }?.distinct().orEmpty()
+        return ChatTurn(
+            said = said,
+            reply = sentenceCase(json.optString("reply").trim()).ifBlank { "Please tell me more." },
+            improved = if (correct) sentenceCase(said) else improved,
+            explanation = if (correct) "" else sentenceCase(json.optString("explanation").trim()),
+            correct = correct,
+            grades = grades,
+            mistakes = if (correct) emptyList() else mistakes.ifEmpty { listOf("other") },
+            ended = forceEnd || json.optBoolean("ended") || TalkContent.soundsLikeGoodbye(said),
+        )
+    }
 
-    private fun chatSystem(topic: String): String {
+    fun startChat(mode: TalkMode) = Chat(mode)
+
+    private fun describe(mode: TalkMode) = when (mode) {
+        is TalkMode.Free -> "a conversation about ${mode.title.lowercase()}"
+        is TalkMode.Scenario -> "a role-play at ${mode.place} (${mode.title.lowercase()})"
+        is TalkMode.Explain -> "he explained ${mode.title.replaceFirstChar { it.lowercase() }}"
+    }
+
+    private fun chatSystem(mode: TalkMode): String {
         val p = profileProvider()
+        val modeText = when (mode) {
+            is TalkMode.Free -> "Topic: ${mode.title}. Have a natural conversation about it."
+            is TalkMode.Scenario -> """
+                Role-play: in "reply", you play ${mode.role} at ${mode.place}. Stay in this role in "reply"; grades and explanation are your coaching notes, outside the role.
+                His goal: ${mode.goal} Keep the situation realistic and simple. When his goal is done, finish the situation politely in role.
+            """.trimIndent()
+            is TalkMode.Explain -> """
+                Explain-it practice: he is explaining ${mode.title.replaceFirstChar { it.lowercase() }}. In "reply", ask about one missing or unclear step, or ask what comes next.
+                For clarity, also judge whether his steps are in a sensible order and easy to follow.
+            """.trimIndent()
+        }
         return """
-            You are the speaking coach in SimpleSpeak, having a spoken conversation to help him practise. ${who(p)}
-            His words come from speech recognition: ignore punctuation, capital letters and filler words.
-            Topic: $topic.
-            How to talk: warm, encouraging, calm and literal. Natural, clear sentences with normal punctuation. No sarcasm or idioms.
-            Show real interest in what he says. Ask one open question at a time that needs more than a yes or no answer, so he practises planning and explaining his ideas.
-            When he says something well, or improves, tell him specifically. ${style(p)}
-            ${if (p.progressNotes.isNotBlank()) "His recent progress: ${p.progressNotes}" else ""}
+            You are the speaking coach in SimpleSpeak. ${who(p)} This conversation is his speaking practice.
+            His words come from speech recognition: ignore punctuation, capital letters and filler words like "um".
+            Your manner: polite and professional, like a good teacher. Calm, respectful and clear. You are a coach, not a friend:
+            do not talk about yourself or your feelings, no pet names, no jokes. Praise only briefly and factually. ${style(p)}
+            Write with normal capital letters and punctuation.
+            Every time he speaks:
+            1. grades: excellent = correct and well formed; very_good = one small slip; good = some mistakes but the meaning is clear; needs_work = many mistakes or hard to follow.
+               grammar = tenses, agreement, pronouns, articles. structure = word order, complete sentences, joining ideas. vocabulary = precise, varied words. clarity = easy to follow.
+            2. improved: his words with the mistakes fixed (copy exactly if correct).
+            3. explanation: if you fixed something, politely teach the rule in one or two short sentences, using his words. Empty if correct.
+            4. mistakes: the kinds of mistakes you fixed.
+            5. reply: continue the conversation naturally (one or two short sentences, one question). Do not repeat the correction in the reply.
+            6. ended: true only if he says goodbye or that he wants to stop.
+            $modeText
             ${if (p.interests.isNotBlank()) "He likes: ${p.interests}." else ""}
         """.trimIndent()
     }
 
     companion object {
-        const val MAX_CHAT_TURNS = 10
+        const val MAX_CHAT_TURNS = 14
 
         fun sentenceCase(s: String): String = s.trim().replaceFirstChar { it.uppercase() }
 
@@ -270,10 +377,34 @@ class Coach(
             "required" to listOf("improved", "praise", "grammar_tip", "mistakes", "better_words", "organization_tip", "next_level"),
         )
 
+        private val GRADE = mapOf("type" to "string", "enum" to Grade.entries.map { it.key })
+
         val CHAT_SCHEMA: Map<String, Any> = mapOf(
             "type" to "object",
-            "properties" to linkedMapOf("reply" to STR, "improved" to STR, "tip" to STR),
-            "required" to listOf("reply", "improved", "tip"),
+            "properties" to linkedMapOf(
+                "grades" to mapOf(
+                    "type" to "object",
+                    "properties" to linkedMapOf("grammar" to GRADE, "structure" to GRADE, "vocabulary" to GRADE, "clarity" to GRADE),
+                    "required" to listOf("grammar", "structure", "vocabulary", "clarity"),
+                ),
+                "improved" to STR,
+                "explanation" to STR,
+                "mistakes" to mapOf("type" to "array", "items" to mapOf("type" to "string", "enum" to MistakeTypes.keys)),
+                "reply" to STR,
+                "ended" to mapOf("type" to "boolean"),
+            ),
+            "required" to listOf("grades", "improved", "explanation", "mistakes", "reply", "ended"),
+        )
+
+        val REPORT_SCHEMA: Map<String, Any> = mapOf(
+            "type" to "object",
+            "properties" to linkedMapOf(
+                "summary" to STR,
+                "strengths" to mapOf("type" to "array", "items" to STR),
+                "work_on" to mapOf("type" to "array", "items" to STR),
+                "practice_sentence" to STR,
+            ),
+            "required" to listOf("summary", "strengths", "work_on", "practice_sentence"),
         )
 
         val SENTENCE_SCHEMA: Map<String, Any> = mapOf(

@@ -105,3 +105,26 @@ data class Feedback(
     val nextLevel: String = "",
     val note: String? = null,
 )
+
+/** Word grades for each speaking skill (no numbers shown to the learner). */
+enum class Grade(val key: String, val label: String, val points: Int) {
+    EXCELLENT("excellent", "Excellent", 4),
+    VERY_GOOD("very_good", "Very good", 3),
+    GOOD("good", "Good", 2),
+    NEEDS_WORK("needs_work", "Needs work", 1);
+
+    companion object {
+        fun of(key: String?): Grade = entries.firstOrNull { it.key == key } ?: GOOD
+        /** The grade closest to an average of points. */
+        fun average(grades: List<Grade>): Grade {
+            if (grades.isEmpty()) return GOOD
+            val avg = grades.sumOf { it.points } / grades.size.toDouble()
+            return entries.minBy { kotlin.math.abs(it.points - avg) }
+        }
+    }
+}
+
+data class SkillGrades(val grammar: Grade, val structure: Grade, val vocabulary: Grade, val clarity: Grade) {
+    val all: List<Pair<String, Grade>> get() = listOf("Grammar" to grammar, "Sentence structure" to structure, "Vocabulary" to vocabulary, "Clarity" to clarity)
+    val overall: Grade get() = Grade.average(listOf(grammar, structure, vocabulary, clarity))
+}
