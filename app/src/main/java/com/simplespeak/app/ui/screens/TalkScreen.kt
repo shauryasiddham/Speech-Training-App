@@ -72,8 +72,36 @@ import com.simplespeak.app.ui.SpeakInput
 import com.simplespeak.app.ui.Thinking
 import kotlinx.coroutines.launch
 
-/** One line of the conversation. For his lines, [turn] holds the grades and correction once they arrive. */
-internal data class ChatLine(val fromCoach: Boolean, val text: String, val turn: ChatTurn? = null)
+internal enum class LineKind {
+    /** An ordinary line of the conversation. */
+    NORMAL,
+    /** The coach teaching the correct way to say his last sentence. */
+    TEACH,
+    /** His attempt at saying the improved sentence. */
+    REPEAT,
+}
+
+/** One line of the conversation. For his lines, [turn] holds the grades once they arrive. */
+internal data class ChatLine(
+    val fromCoach: Boolean,
+    val text: String,
+    val turn: ChatTurn? = null,
+    val kind: LineKind = LineKind.NORMAL,
+    val repeatOk: Boolean? = null,
+    val target: String? = null,
+)
+
+/**
+ * Did he say the improved sentence? Every corrected word must be there (so the original mistake never passes),
+ * and the rest must match closely. Speech recognition can mishear a word, so after a few tries it allows a little more.
+ */
+internal fun repeatMatches(attempt: String, target: String, original: String, tries: Int): Boolean {
+    if (TextMatch.sameSentence(attempt, target)) return true
+    val said = TextMatch.normalize(attempt).toSet()
+    val corrected = TextMatch.highlightChanges(original, target).filter { it.second }.flatMap { TextMatch.normalize(it.first) }
+    if (!corrected.all { it in said }) return false
+    return TextMatch.similarity(attempt, target) >= if (tries >= 3) 0.8 else 0.9
+}
 
 @Composable
 fun TalkScreen(vm: AppViewModel) {
@@ -146,6 +174,9 @@ private fun ChatView(vm: AppViewModel, mode: TalkMode, onEnd: () -> Unit) {
     var round by remember { mutableIntStateOf(0) }
     var report by remember { mutableStateOf<ReportCard?>(null) }
     var making by remember { mutableStateOf(false) }
+    /** The correction he must say before the conversation continues. */
+    var fix by remember { mutableStateOf<ChatTurn?>(null) }
+    var fixTries by remember { mutableIntStateOf(0) }
     val chat = remember { runCatching { vm.coach.startChat(mode) }.getOrNull() }
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
@@ -182,8 +213,17 @@ private fun ChatView(vm: AppViewModel, mode: TalkMode, onEnd: () -> Unit) {
             try {
                 val turn = c.send(ans.text) { partial -> streaming = partial }
                 lines[index] = lines[index].copy(turn = turn)
-                lines += ChatLine(true, turn.reply)
-                if (vm.prefs.speakReplies) vm.speaker.say(turn.reply)
+                if (!turn.correct && !turn.ended) {
+                    // Teach first; the coach's reply waits until he has said the improved sentence.
+                    fix = turn; fixTries = 0
+                    lines += ChatLine(true, turn.improved, turn, LineKind.TEACH)
+                    if (vm.prefs.speakReplies) vm.speaker.say(
+                        "Let's say that correctly. ${turn.explanation} Please say: ${turn.improved}"
+                    )
+                } else {
+                    lines += ChatLine(true, turn.reply)
+                    if (vm.prefs.speakReplies) vm.speaker.say(turn.reply)
+                }
                 vm.recordAttempt(
                     ExerciseType.TALK, 0, mode.title,
                     Feedback(turn.correct, "", ans.text, turn.improved, turn.explanation, turn.mistakes),
@@ -195,6 +235,23 @@ private fun ChatView(vm: AppViewModel, mode: TalkMode, onEnd: () -> Unit) {
             }
             streaming = null; waiting = false; round++
         }
+    }
+
+    /** His attempt at the improved sentence. The conversation continues only when it matches. */
+    fun repeat(ans: SpokenAnswer) {
+        val f = fix ?: return
+        val ok = repeatMatches(ans.text, f.improved, f.said, fixTries)
+        lines += ChatLine(false, ans.text, kind = LineKind.REPEAT, repeatOk = ok, target = f.improved)
+        if (ok) {
+            fix = null
+            val reply = "Well said. ${f.reply}"
+            lines += ChatLine(true, reply)
+            if (vm.prefs.speakReplies) vm.speaker.say(reply)
+        } else {
+            fixTries++
+            if (vm.prefs.speakReplies) vm.speaker.say("Not quite. Listen, then try again. ${f.improved}")
+        }
+        round++
     }
 
     report?.let { r -> ReportView(vm, mode, r, chat?.turns.orEmpty(), onNew = onEnd); return }
@@ -220,7 +277,14 @@ private fun ChatView(vm: AppViewModel, mode: TalkMode, onEnd: () -> Unit) {
         }
         HorizontalDivider()
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(lines) { l -> if (l.fromCoach) CoachBubble(vm, l.text) else LearnerBubble(vm, l) }
+            items(lines) { l ->
+                when {
+                    l.kind == LineKind.TEACH && l.turn != null -> TeachBubble(vm, l.turn)
+                    l.kind == LineKind.REPEAT -> RepeatBubble(l)
+                    l.fromCoach -> CoachBubble(vm, l.text)
+                    else -> LearnerBubble(vm, l)
+                }
+            }
             item {
                 streaming?.let { s -> if (s.isNotBlank()) CoachBubble(vm, s) else Thinking(vm, "Your coach is listening…") }
             }
@@ -231,6 +295,7 @@ private fun ChatView(vm: AppViewModel, mode: TalkMode, onEnd: () -> Unit) {
                     making -> Thinking(vm, "Writing your report card…")
                     waiting -> Text("Your coach is replying…", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     chat == null -> Text("The coach could not start. Please try again.", style = MaterialTheme.typography.bodyLarge)
+                    fix != null -> RepeatPanel(vm, fix!!, fixTries, round, ::repeat)
                     else -> {
                         error?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error); Spacer(Modifier.height(6.dp)) }
                         key(round) { SpeakInput(vm, onAnswer = ::send, label = "Tap and answer", thinkFirst = true, saveAnswer = true) }
@@ -269,10 +334,6 @@ internal fun LearnerBubble(vm: AppViewModel, line: ChatLine) {
         if (turn != null) {
             Spacer(Modifier.height(6.dp))
             GradeRow(turn)
-            if (!turn.correct) {
-                Spacer(Modifier.height(6.dp))
-                CorrectionCard(vm, turn)
-            }
         }
     }
 }
@@ -306,37 +367,78 @@ private fun gradeColors(grade: Grade): Pair<Color, Color> {
     }
 }
 
-/** The polite correction under his answer, with an optional chance to say it the better way. */
+/** The coach teaching how to say his sentence correctly. */
 @Composable
-private fun CorrectionCard(vm: AppViewModel, turn: ChatTurn) {
-    var trying by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf<String?>(null) }
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.widthIn(max = 320.dp)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            SectionLabel("A better way to say it")
-            HighlightedSentence(turn.said, turn.improved, MaterialTheme.typography.bodyLarge)
-            if (turn.explanation.isNotBlank()) Text(turn.explanation, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ListenButton(vm, turn.improved)
-                if (!trying) TextButton(onClick = { trying = true; result = null }) {
-                    Icon(Icons.Rounded.RecordVoiceOver, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Say it the better way")
+internal fun TeachBubble(vm: AppViewModel, turn: ChatTurn) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        CoachOrb(OrbState.Idle, size = 30.dp, reduceMotion = true)
+        Spacer(Modifier.width(8.dp))
+        Surface(
+            shape = RoundedCornerShape(topStart = 6.dp, topEnd = 22.dp, bottomStart = 22.dp, bottomEnd = 22.dp),
+            color = MaterialTheme.colorScheme.secondaryContainer, modifier = Modifier.widthIn(max = 310.dp),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Let's say that correctly first.", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                if (turn.explanation.isNotBlank()) {
+                    Text(turn.explanation, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
+                SectionLabel("You said")
+                Text(turn.said, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SectionLabel("The correct way")
+                HighlightedSentence(turn.said, turn.improved, MaterialTheme.typography.titleMedium)
+                ListenButton(vm, turn.improved)
             }
-            if (trying) {
-                SpeakInput(vm, label = "Tap and say it", onAnswer = { ans ->
-                    val score = TextMatch.similarity(ans.text, turn.improved)
-                    result = if (score >= 0.85) "✓ That's it. Well said." else "I heard: “${ans.text}”. Listen once more and try again, or just keep talking."
-                    trying = false
-                })
-            }
-            result?.let {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (it.startsWith("✓")) Icon(Icons.Rounded.CheckCircle, null, tint = LocalExtraColors.current.success, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(it.removePrefix("✓ "), style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+/** His attempt at the improved sentence, marked right or not yet. */
+@Composable
+internal fun RepeatBubble(line: ChatLine) {
+    val extra = LocalExtraColors.current
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+        Surface(
+            shape = RoundedCornerShape(topStart = 22.dp, topEnd = 6.dp, bottomStart = 22.dp, bottomEnd = 22.dp),
+            color = if (line.repeatOk == true) extra.successContainer else MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.widthIn(max = 300.dp),
+        ) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                if (line.repeatOk == true || line.target == null) {
+                    Text(line.text, style = MaterialTheme.typography.bodyLarge, color = if (line.repeatOk == true) extra.onSuccessContainer else MaterialTheme.colorScheme.onSurface)
+                } else {
+                    // Highlight the words that still differ from the correct sentence.
+                    HighlightedSentence(line.target, line.text, MaterialTheme.typography.bodyLarge)
                 }
             }
         }
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (line.repeatOk == true) {
+                Icon(Icons.Rounded.CheckCircle, null, tint = extra.success, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Said correctly", style = MaterialTheme.typography.labelMedium, color = extra.success)
+            } else {
+                Text("Not quite yet. Try again.", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+/** Shown instead of the normal microphone until he says the improved sentence. */
+@Composable
+private fun RepeatPanel(vm: AppViewModel, turn: ChatTurn, tries: Int, round: Int, onAnswer: (SpokenAnswer) -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.RecordVoiceOver, null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Say the correct sentence to continue", style = MaterialTheme.typography.titleSmall)
+        }
+        Text("“${turn.improved}”", style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        if (tries >= 2) {
+            Text("Take it slowly. Listen first, then say it one part at a time.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
+        key(round) { SpeakInput(vm, onAnswer = onAnswer, label = "Tap and say it", saveAnswer = false) }
     }
 }
 
@@ -351,7 +453,7 @@ internal fun ReportView(vm: AppViewModel, mode: TalkMode, r: ReportCard, turns: 
                 Text("REPORT CARD", style = MaterialTheme.typography.labelSmall, color = extra.heroText.copy(alpha = 0.8f))
                 Text(mode.title, style = MaterialTheme.typography.titleMedium, color = extra.heroText)
                 Text("Overall: ${r.grades.overall.label}", style = MaterialTheme.typography.headlineMedium, color = extra.heroText)
-                Text("${turns.size} answers · ${turns.count { it.correct }} said correctly", style = MaterialTheme.typography.bodyMedium, color = extra.heroText.copy(alpha = 0.9f))
+                Text("${turns.size} answers · ${turns.count { it.correct }} correct first time · ${turns.count { !it.correct }} corrected and practised", style = MaterialTheme.typography.bodyMedium, color = extra.heroText.copy(alpha = 0.9f))
             }
         }
         SoftCard {

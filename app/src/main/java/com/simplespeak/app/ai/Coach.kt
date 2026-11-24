@@ -340,9 +340,9 @@ class Coach(
             1. grades: excellent = correct and well formed; very_good = one small slip; good = some mistakes but the meaning is clear; needs_work = many mistakes or hard to follow.
                grammar = tenses, agreement, pronouns, articles. structure = word order, complete sentences, joining ideas. vocabulary = precise, varied words. clarity = easy to follow.
             2. improved: his words with the mistakes fixed (copy exactly if correct).
-            3. explanation: if you fixed something, politely teach the rule in one or two short sentences, using his words. Empty if correct.
+            3. explanation: if you fixed something, teach him how to build the sentence he was trying to say: name what was wrong and the correct pattern, politely, in one or two short sentences, using his words. He will practise saying the improved sentence before the conversation continues. Empty if correct.
             4. mistakes: the kinds of mistakes you fixed.
-            5. reply: continue the conversation naturally (one or two short sentences, one question). Do not repeat the correction in the reply.
+            5. reply: your next turn in the conversation (one or two short sentences, one question). He sees it after he has practised any correction, so do not mention the correction in the reply.
             6. ended: true only if he says goodbye or that he wants to stop.
             $modeText
             ${if (p.interests.isNotBlank()) "He likes: ${p.interests}." else ""}
@@ -352,7 +352,10 @@ class Coach(
     companion object {
         const val MAX_CHAT_TURNS = 14
 
-        fun sentenceCase(s: String): String = s.trim().replaceFirstChar { it.uppercase() }
+        private val lowerI = Regex("\\bi\\b(?=$|[\\s'’,.!?])")
+
+        /** Capital first letter, and a capital "I" (the model often writes "my dad and i"). */
+        fun sentenceCase(s: String): String = s.trim().replace(lowerI, "I").replaceFirstChar { it.uppercase() }
 
         private val STR = mapOf("type" to "string")
 

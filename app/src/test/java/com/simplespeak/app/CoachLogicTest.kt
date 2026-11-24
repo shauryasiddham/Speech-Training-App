@@ -99,6 +99,24 @@ class CoachLogicTest {
         assertTrue(fake.prompts.last().contains("thank you bye"))
     }
 
+    @Test fun capitalI() {
+        assertEquals("On Saturday my dad and I went to the museum, and I'm happy.", Coach.sentenceCase("on Saturday my dad and i went to the museum, and i'm happy."))
+        assertEquals("I like it.", Coach.sentenceCase("i like it."))
+        assertEquals("Pizza is nice.", Coach.sentenceCase("pizza is nice."))
+    }
+
+    @Test fun repeatMustMatchTheImprovedSentence() {
+        val original = "yesterday I cooking pasta with my mum but it was too much salt"
+        val target = "Yesterday I cooked pasta with my mum, but it was too salty."
+        fun ok(attempt: String, tries: Int = 0) = com.simplespeak.app.ui.screens.repeatMatches(attempt, target, original, tries)
+        assertTrue(ok("yesterday I cooked pasta with my mum but it was too salty"))
+        assertTrue(ok("yesterday I cooked pasta with my mom but it was too salty")) // one misheard word
+        assertFalse(ok(original))           // his original mistake never passes
+        assertFalse(ok(original, tries = 5))
+        assertFalse(ok("yesterday I cooked pasta with my mum but it was too"))  // dropped the corrected word
+        assertFalse(ok("I cooked pasta it was salty"))                         // too much missing
+    }
+
     @Test fun gradesAverageToWords() {
         assertEquals(Grade.VERY_GOOD, Grade.average(listOf(Grade.EXCELLENT, Grade.GOOD, Grade.VERY_GOOD, Grade.VERY_GOOD)))
         assertEquals(Grade.NEEDS_WORK, Grade.average(listOf(Grade.NEEDS_WORK)))

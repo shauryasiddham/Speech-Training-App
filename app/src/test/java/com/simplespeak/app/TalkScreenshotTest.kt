@@ -23,6 +23,9 @@ import com.simplespeak.app.ui.SimpleSpeakTheme
 import com.simplespeak.app.ui.screens.ChatLine
 import com.simplespeak.app.ui.screens.CoachBubble
 import com.simplespeak.app.ui.screens.LearnerBubble
+import com.simplespeak.app.ui.screens.LineKind
+import com.simplespeak.app.ui.screens.RepeatBubble
+import com.simplespeak.app.ui.screens.TeachBubble
 import com.simplespeak.app.ui.screens.ReportView
 import org.junit.Rule
 import org.junit.Test
@@ -66,8 +69,10 @@ class TalkScreenshotTest {
         Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             CoachBubble(vm, "What did you do last weekend?")
             LearnerBubble(vm, ChatLine(false, wrong.said, wrong))
-            CoachBubble(vm, wrong.reply)
-            LearnerBubble(vm, ChatLine(false, right.said, right))
+            TeachBubble(vm, wrong)
+            RepeatBubble(ChatLine(false, "on saturday my dad and I go to the train museum", kind = LineKind.REPEAT, repeatOk = false, target = wrong.improved))
+            RepeatBubble(ChatLine(false, "On Saturday my dad and I went to the train museum", kind = LineKind.REPEAT, repeatOk = true, target = wrong.improved))
+            CoachBubble(vm, "Well said. " + wrong.reply)
         }
     }
 

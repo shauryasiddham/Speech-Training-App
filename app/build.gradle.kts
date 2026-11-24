@@ -20,8 +20,8 @@ android {
         applicationId = "com.simplespeak.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "4.0"
+        versionCode = 6
+        versionName = "4.1"
         // The on-device model runtime is 64-bit ARM only (all modern Android phones, including the Galaxy A56).
         ndk { abiFilters += "arm64-v8a" }
     }
